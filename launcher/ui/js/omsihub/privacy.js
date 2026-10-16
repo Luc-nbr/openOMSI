@@ -27,7 +27,10 @@ export async function privacyDoc() {
 const Spans = ({ s }) => (s || []).map(([text, bold]) => (bold ? html`<b>${text}</b>` : text));
 
 function Block({ b }) {
-  if (b.h) return b.h === 1 ? html`<h3 class="ol-pv-h1"><${Spans} s=${b.text} /></h3>` : html`<h4 class="ol-pv-h2"><${Spans} s=${b.text} /></h4>`;
+  // (# the title, ## a numbered section, ### its numbered subsection)
+  if (b.h === 1) return html`<h3 class="ol-pv-h1"><${Spans} s=${b.text} /></h3>`;
+  if (b.h === 2) return html`<h4 class="ol-pv-h2"><${Spans} s=${b.text} /></h4>`;
+  if (b.h) return html`<h5 class="ol-pv-h3"><${Spans} s=${b.text} /></h5>`;
   if (b.ul) return html`<ul class="ol-pv-ul">${b.ul.map((li) => html`<li><${Spans} s=${li} /></li>`)}</ul>`;
   if (b.quote) return html`<p class="ol-pv-quote"><${Spans} s=${b.quote} /></p>`;
   if (b.table)
@@ -45,7 +48,7 @@ export function Statement() {
     if (!d) privacyDoc().then(setD).catch(() => {});
   }, []);
   return html`<div class="ol-pv-doc">
-    <p class="ol-pv-binding"><${Icon} name="info" size=${13} />${tr('The privacy statement is in English. The English text is the binding one.')}</p>
+    <p class="ol-pv-binding"><${Icon} name="info" size=${13} />${tr('This Privacy Statement is drawn up in English; the English text is binding.')}</p>
     ${d ? d.blocks.map((b) => html`<${Block} b=${b} />`) : html`<p>…</p>`}
   </div>`;
 }
@@ -57,8 +60,8 @@ function Dialog({ close }) {
     return () => removeEventListener('keydown', k, true);
   }, []);
   return html`<div class="overlay ol-pv-overlay top" onMouseDown=${(e) => e.target === e.currentTarget && close()}>
-    <div class="ol-pv-box" role="dialog" aria-label=${tr('Privacy statement')}>
-      <header class="ol-pv-head"><${Icon} name="lock" size=${20} /><h2>${tr('Privacy statement')}</h2><span class="ol-fill"></span>
+    <div class="ol-pv-box" role="dialog" aria-label=${tr('Privacy Statement')}>
+      <header class="ol-pv-head"><${Icon} name="lock" size=${20} /><h2>${tr('Privacy Statement')}</h2><span class="ol-fill"></span>
         <button type="button" class="hub-bar-btn" title=${tr('Close')} onClick=${close}><${Icon} name="close" size=${17} /></button></header>
       <div class="ol-pv-scroll"><${Statement} /></div>
       <div class="ol-pv-acts"><span class="ol-fill"></span><button type="button" class="hub-btn small primary" onClick=${close}>${tr('Close')}</button></div>
@@ -79,13 +82,13 @@ export function showPrivacy() {
 
 /** A link to the statement. */
 export function PrivacyLink({ label }) {
-  return html`<button type="button" class="ol-pv-link" onClick=${(e) => (e.preventDefault(), e.stopPropagation(), showPrivacy())}><${Icon} name="lock" size=${13} />${label || tr('Privacy statement')}</button>`;
+  return html`<button type="button" class="ol-pv-link" onClick=${(e) => (e.preventDefault(), e.stopPropagation(), showPrivacy())}><${Icon} name="lock" size=${13} />${label || tr('Privacy Statement')}</button>`;
 }
 
 /** The tick before an account is made or signed in to. */
 export function AgreeBox({ on, set }) {
   return html`<div class="ol-pv-agree">
-    <label><input type="checkbox" checked=${on} onChange=${(e) => set(e.currentTarget.checked)} /><span>${tr('I have read and agree to the privacy statement')}</span></label>
-    <${PrivacyLink} label=${tr('Read the privacy statement')} />
+    <label><input type="checkbox" checked=${on} onChange=${(e) => set(e.currentTarget.checked)} /><span>${tr('I have read the Privacy Statement and agree to the processing of my personal data as described therein.')}</span></label>
+    <${PrivacyLink} label=${tr('Read the Privacy Statement')} />
   </div>`;
 }

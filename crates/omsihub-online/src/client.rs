@@ -150,6 +150,15 @@ impl Client {
         self.signed_in() && !self.agreed()
     }
 
+    /// The newest version of the privacy statement this user accepted, as the server last said
+    /// (0: none); None before it was asked.
+    pub fn privacy_agreed(&self) -> Option<u32> {
+        match (&self.privacy, self.user_id()) {
+            (Some((user, v)), Some(me)) if user == me => Some(*v),
+            _ => None,
+        }
+    }
+
     fn agreed(&self) -> bool {
         matches!((&self.privacy, self.user_id()), (Some((user, v)), Some(me)) if user == me && *v >= privacy::VERSION)
     }

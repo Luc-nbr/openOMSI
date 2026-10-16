@@ -128,7 +128,7 @@ function Ask({ v, done }) {
       ${conflict && html`<span class="hubcs-fill"></span><button type="button" class="hub-btn small ghost" disabled=${busy} onClick=${() => pick(null)}>${tr('Decide later')}</button>`}
     </div>
     ${conflict && html`<p class="hubcs-note">${tr('Keep both: this PC\'s copy stays as %{copy}, a local save; the cloud\'s opens.', { copy: v.copy })}</p>`}
-    <p class="hubcs-note">${tr('Cloud saves stay private to your account.')} <${PrivacyLink} /></p>
+    <p class="hubcs-note">${tr('Cloud saves are accessible to the account holder only.')} <${PrivacyLink} /></p>
   </div></div>`;
 }
 

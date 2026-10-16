@@ -115,6 +115,14 @@ mod tests {
         let b = d["blocks"].as_array().unwrap();
         assert_eq!(b[0]["h"], 1);
         assert!(b.iter().filter(|x| x.get("table").is_some()).count() >= 2);
+        // (numbered sections and subsections; tables of three columns, every row whole)
+        assert!(b.iter().any(|x| x["h"] == 2 && x["text"][0][0].as_str().is_some_and(|t| t.starts_with("1. "))));
+        assert!(b.iter().any(|x| x["h"] == 3 && x["text"][0][0].as_str().is_some_and(|t| t.starts_with("3.1 "))));
+        for t in b.iter().filter_map(|x| x.get("table")) {
+            let n = t["head"].as_array().unwrap().len();
+            assert!(n >= 2 && t["rows"].as_array().unwrap().iter().all(|r| r.as_array().unwrap().len() == n), "{t}");
+        }
+        assert!(b.iter().any(|x| x["table"]["head"].as_array().is_some_and(|h| h.len() == 3)));
         assert!(b.iter().any(|x| x.get("ul").is_some()));
         let all = d.to_string();
         assert!(all.contains("Delete account") && !all.contains("<!--") && !all.contains('\r'));

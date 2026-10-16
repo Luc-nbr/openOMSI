@@ -81,7 +81,7 @@ pub const TEXTS: &[(&str, &str)] = &[
     ("bad_save", "The cloud save is damaged: its checksum is wrong. Nothing was changed."),
     // (the state)
     ("not_signed_in", "Sign in first."),
-    ("privacy", "Agree to the privacy statement first: then your account works."),
+    ("privacy", "Please accept the Privacy Statement before using your account."),
     ("offline", "Offline: the online features are back as soon as the network is."),
     ("signed_out", "You were signed out. Sign in again."),
     ("unavailable", "The server does not offer this yet."),

@@ -240,7 +240,7 @@ function SignedOut({ v }) {
       <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" onEnter=${signIn} />
       ${agree}
       <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} disabled=${!agreed} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
-      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url || !agreed} title=${agreed ? '' : tr('Tick the box above first: you agree to the privacy statement.')} onClick=${create} /></div>`;
+      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url || !agreed} title=${agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.')} onClick=${create} /></div>`;
   }
   return html`<div class="ol-account">
     <p class="ol-lead">${tr('An account is optional. With one you add friends, see who is online and invite them to your company. Without one, everything else works as before.')}</p>
@@ -441,9 +441,9 @@ export function OnlineButton({ company }) {
     </button>${v?.badge > 0 && html`<span class="ol-badge">${v.badge}</span>`}${signed && v.offline && html`<span class="ol-off"></span>`}</span>${company && html`<span class="gap8"></span>`}`;
 }
 
-/** Signed in, and the current privacy statement not agreed to (a new version, or an account made
- * before there was one): agree, or sign out and play on locally. The account does nothing until
- * then. */
+/** Signed in, and the current privacy statement not agreed to (an amended version, or an account
+ * made before there was one): accept, or sign out and play on locally. The account does nothing
+ * until then. */
 function PrivacyAsk({ v }) {
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -454,22 +454,25 @@ function PrivacyAsk({ v }) {
     setErr(r.error || '');
     if (r.ok && r.message) toast(r.message, 'ok');
   };
-  return html`<div class="overlay ol-pv-overlay" role="dialog" aria-modal="true" aria-label=${tr('Privacy statement')}>
+  const n = v.privacy?.version || 1;
+  return html`<div class="overlay ol-pv-overlay" role="dialog" aria-modal="true" aria-label=${tr('Privacy Statement')}>
     <div class="ol-pv-box ask">
-      <header class="ol-pv-head"><${Icon} name="lock" size=${22} /><div class="t"><h2>${tr('Before you use your account')}</h2><p>${tr('Privacy statement, version %{n}', { n: v.privacy?.version || 1 })}</p></div></header>
+      <header class="ol-pv-head"><${Icon} name="lock" size=${22} /><div class="t"><h2>${tr('Privacy Statement')}</h2><p>${tr('Version %{n}', { n })}</p></div></header>
       <div class="ol-pv-scroll">
-        <p class="ol-pv-lead">${tr('Your friends, invites, the leaderboard and your cloud saves work once you agree to the privacy statement. When it changes, you are asked again.')}</p>
+        <p class="ol-pv-lead">${v.privacy?.amended
+          ? tr('The Privacy Statement has been amended (version %{n}). Please review and accept it to continue using your account.', { n })
+          : tr('Please review and accept the Privacy Statement (version %{n}) to continue using your account.', { n })}</p>
         <ul class="ol-pv-sum">
-          <li>${tr('Your account keeps your email address, display name, friends, invites, statistics and at most 2 cloud saves, on servers in the EU.')}</li>
-          <li>${tr('Nothing is sold, and there are no ads and no tracking.')}</li>
-          <li>${tr('You can delete your account at any time: Account, then Delete account.')}</li>
-          <li>${tr('Playing without an account needs none of this: sign out, and Omsi-Hub plays on locally.')}</li>
+          <li>${tr('Your account holds your email address, display name, friends, invitations, statistics and up to two cloud saves, stored on servers in the European Union.')}</li>
+          <li>${tr('Personal data is not sold, and no advertising or tracking is used.')}</li>
+          <li>${tr('You may delete your account at any time under Account → Delete account.')}</li>
+          <li>${tr('Omsi-Hub can be used without an account. If you sign out, you can continue to play locally.')}</li>
         </ul>
         <${Statement} />
       </div>
       ${err && html`<p class="ol-err">${err}</p>`}
       <div class="ol-pv-acts">
-        <${Btn} kind="primary" icon="check" label=${tr('Agree')} busy=${busy === 'ol_privacy_accept'} disabled=${!!busy} onClick=${() => go('ol_privacy_accept')} />
+        <${Btn} kind="primary" icon="check" label=${tr('Accept')} busy=${busy === 'ol_privacy_accept'} disabled=${!!busy} onClick=${() => go('ol_privacy_accept')} />
         <span class="ol-fill"></span>
         <${Btn} kind="ghost" icon="logout" label=${tr('Sign out')} busy=${busy === 'ol_sign_out'} disabled=${!!busy} onClick=${() => go('ol_sign_out')} />
       </div>

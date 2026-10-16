@@ -54,6 +54,9 @@ struct View {
     need_profile: bool,
     /// Signed in, and the current privacy statement not agreed to: the account waits.
     need_privacy: bool,
+    /// The version accepted before (0: none), while `need_privacy`: an amended statement, or none
+    /// accepted yet.
+    privacy_before: u32,
     profile: Option<Profile>,
     friends: Vec<Friend>,
     invites: Vec<Invite>,
@@ -159,6 +162,7 @@ fn signed_out(v: &mut View) {
     v.signed_in = false;
     v.need_profile = false;
     v.need_privacy = false;
+    v.privacy_before = 0;
     v.profile = None;
     v.friends.clear();
     v.invites.clear();
@@ -190,7 +194,8 @@ fn refresh(beat: bool) -> Result<(), Error> {
             return Ok(None);
         }
         if c.privacy_needed() && c.check_privacy()? < privacy::VERSION {
-            return Ok(Some((c.lasting(), None)));
+            // (held: the version accepted before, if any)
+            return Ok(Some((c.lasting(), Err(c.privacy_agreed().unwrap_or(0)))));
         }
         if beat {
             // (no profile yet: the heartbeat has nothing to tell)
@@ -201,16 +206,17 @@ fn refresh(beat: bool) -> Result<(), Error> {
         }
         let profile = c.profile()?;
         let (friends, invites) = if profile.is_some() { (c.friends()?, c.invites()?) } else { (Vec::new(), Vec::new()) };
-        Ok(Some((c.lasting(), Some((profile, friends, invites)))))
+        Ok(Some((c.lasting(), Ok((profile, friends, invites)))))
     });
     let mut v = view();
     match got {
-        Ok(Some((lasting, None))) => {
+        Ok(Some((lasting, Err(agreed)))) => {
             // (the account waits for the player's agreement; asked again at the next beat)
             v.signed_in = true;
             v.lasting = lasting;
             v.offline = false;
             v.need_privacy = true;
+            v.privacy_before = agreed;
             v.need_profile = false;
             v.profile = None;
             v.friends.clear();
@@ -222,7 +228,7 @@ fn refresh(beat: bool) -> Result<(), Error> {
             }
             Ok(())
         }
-        Ok(Some((lasting, Some((profile, friends, invites))))) => {
+        Ok(Some((lasting, Ok((profile, friends, invites))))) => {
             v.signed_in = true;
             v.lasting = lasting;
             v.offline = false;
@@ -405,7 +411,7 @@ fn state() -> Value {
         "hosting": hosting,
         "together": together::enabled(),
         "sign_up_url": omsihub_online::sign_up_page(),
-        "privacy": { "version": privacy::VERSION, "needed": v.signed_in && v.need_privacy },
+        "privacy": { "version": privacy::VERSION, "needed": v.signed_in && v.need_privacy, "amended": v.privacy_before > 0 },
     })
 }
 
@@ -426,17 +432,23 @@ fn after_sign_in(agree: bool) -> Value {
         v.signed_in = true;
         v.seen.clear();
     }
-    let agreed = with(|c| -> Result<bool, Error> {
-        if c.check_privacy()? >= privacy::VERSION {
-            return Ok(true);
+    // (Ok(None): accepted; Ok(Some(n)): held, version n accepted before)
+    let agreed = with(|c| -> Result<Option<u32>, Error> {
+        let before = c.check_privacy()?;
+        if before >= privacy::VERSION || (agree && c.accept_privacy()? >= privacy::VERSION) {
+            return Ok(None);
         }
-        Ok(agree && c.accept_privacy()? >= privacy::VERSION)
+        Ok(Some(before))
     });
     match agreed {
-        Ok(true) => start_account(),
-        Ok(false) => {
-            view().need_privacy = true;
-            done(&tr("Signed in. Agree to the privacy statement to use your account."))
+        Ok(None) => start_account(),
+        Ok(Some(before)) => {
+            {
+                let mut v = view();
+                v.need_privacy = true;
+                v.privacy_before = before;
+            }
+            done(&tr("Signed in. Please accept the Privacy Statement to use your account."))
         }
         Err(e) => fail(e),
     }
@@ -449,7 +461,7 @@ fn privacy_accept() -> Value {
             view().need_privacy = false;
             let mut a = start_account();
             if a.get("ok").is_some() {
-                a["message"] = json!(tr("Thank you. Your account is ready."));
+                a["message"] = json!(tr("The Privacy Statement has been accepted."));
             }
             a
         }
