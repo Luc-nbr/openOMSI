@@ -11,17 +11,24 @@
 //!   runs reaches the plugin at once.
 //! * `data/notices.json`: notices that come while the player drives, read every few seconds
 //!   where the game has `files.read` and `json.decode` (the `live_notices` feature).
+//! * `data/messages.json`: the driver's inbox of the control room's messages ([`Inbox`]: in the
+//!   player's language, with the buttons' words), read every few seconds like the notices (the
+//!   `messages` feature, `lua/messages.lua`; docs/omsihub/MESSAGES.md).
 //!
 //! The plugin to Omsi-Hub:
 //!
 //! * `data/hello.json`: the handshake ([`Hello`]) - the game's version, its plugin API's ABI
 //!   and which of the functions the add-on uses it has (`crate::compat` negotiates from it);
 //! * `data/reports.jsonl`: one [`Report`] a line - the duty taken, each trip done with its
-//!   ratings, the duty ended - appended as they happen ([`ReportReader`] reads what is new).
+//!   ratings, the duty ended - appended as they happen ([`ReportReader`] reads what is new);
+//! * `data/replies.jsonl`: one [`Reply`] a line - a message delivered, read, accepted or
+//!   declined, a canned reply, a quick button to control ([`ReplyReader`]);
+//! * `data/status.json`: how the duty stands, written every few seconds ([`Status`]: the trip,
+//!   its delay, how much of it is left) - what the AI dispatcher looks at.
 //!
 //! A game without `files.write` / `files.append` gets the same lines into its log instead
-//! (`omsi.log`, `[lua omsihub] OMSIHUB-HELLO {...}` and `OMSIHUB-REPORT {...}`), which
-//! [`from_log`] reads back.
+//! (`omsi.log`, `[lua omsihub] OMSIHUB-HELLO {...}`, `OMSIHUB-REPORT {...}` and
+//! `OMSIHUB-REPLY {...}`), which [`from_log`] and [`replies_from_log`] read back.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -41,9 +48,13 @@ pub const DATA_DIR: &str = "data";
 pub const NOTICES_FILE: &str = "notices.json";
 pub const HELLO_FILE: &str = "hello.json";
 pub const REPORTS_FILE: &str = "reports.jsonl";
+pub const MESSAGES_FILE: &str = "messages.json";
+pub const REPLIES_FILE: &str = "replies.jsonl";
+pub const STATUS_FILE: &str = "status.json";
 /// What the plugin's log lines start with when it cannot write files.
 pub const LOG_HELLO: &str = "OMSIHUB-HELLO ";
 pub const LOG_REPORT: &str = "OMSIHUB-REPORT ";
+pub const LOG_REPLY: &str = "OMSIHUB-REPLY ";
 
 /// A notice of the company for the driver.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -175,6 +186,123 @@ impl Report {
     }
 }
 
+/// A button the driver has: its key (what the reply says) and its words.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Choice {
+    pub key: String,
+    pub label: String,
+    /// A material icon's name.
+    pub icon: String,
+}
+
+/// What an instruction asks the game to do (`company::messages::What`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InboxAction {
+    /// `"short_turn"`, `"out_of_service"`, `"layover"`, `"swap"`, `"hold"`, `"relief"`.
+    pub kind: String,
+    /// The trip it is done at: when it leaves its first stop (seconds of the day).
+    pub departure: f64,
+    /// A short-turn's or out of service's share of the trip not run in service.
+    pub part: f64,
+    /// A hold's minutes.
+    pub minutes: i32,
+    /// A relief's stop (its name).
+    pub stop: String,
+    /// What it is, in a few words.
+    pub label: String,
+}
+
+/// A message in the driver's inbox, in the player's language.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InboxMsg {
+    pub id: u64,
+    /// The company's time it was sent (`"14:05"`).
+    pub time: String,
+    /// Who sent it, in words; `mine`: the driver's own to control.
+    pub from: String,
+    pub mine: bool,
+    /// `"info"`, `"instruction"`, `"urgent"`.
+    pub priority: String,
+    pub text: String,
+    pub action: Option<InboxAction>,
+    /// `"sent"`, `"delivered"`, `"read"`, `"accepted"`, `"declined"`, and in words.
+    pub state: String,
+    pub state_label: String,
+    /// The driver's canned reply, in words.
+    pub reply: String,
+    /// What came of an accepted instruction where it could not be done.
+    pub outcome: String,
+}
+
+/// The driver's inbox (`data/messages.json`, and the phone's): the messages of the duty he
+/// drives, the newest first, with the words of his buttons.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Inbox {
+    pub bridge: u32,
+    pub company: String,
+    /// The duty it is for: its line (the timetable's name) and tour.
+    pub line: String,
+    pub tour: String,
+    pub messages: Vec<InboxMsg>,
+    /// The quick buttons to control, and the canned replies.
+    pub quick: Vec<Choice>,
+    pub replies: Vec<Choice>,
+    /// The inbox's own words (English key -> the player's language: "Messages", "Accept", ...),
+    /// for a screen without the plugin's texts (the phone).
+    pub words: BTreeMap<String, String>,
+}
+
+/// What the driver did with the control room's messages, or tells it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Reply {
+    /// `"delivered"`, `"read"`, `"accept"`, `"decline"`, `"reply"` (a canned reply: `key`),
+    /// `"quick"` (a quick button to control: `key`).
+    pub kind: String,
+    /// The message it is about (none for `"quick"`).
+    pub id: u64,
+    pub key: String,
+    /// The assignment and the duty it comes from.
+    pub issued: u64,
+    pub line: String,
+    pub tour: String,
+    /// Its own id on the device (the same line twice counts once).
+    pub uid: String,
+    pub at: f64,
+    pub clock: Option<f64>,
+}
+
+/// How the duty stands now, as the game says (`data/status.json`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Status {
+    pub issued: u64,
+    pub line: String,
+    pub tour: String,
+    /// The trip under way (from 1) of how many; its departure and arrival, the next trip's
+    /// (seconds of the day).
+    pub trip: u32,
+    pub trips: u32,
+    pub departure: Option<f64>,
+    pub arrival: Option<f64>,
+    pub next_departure: Option<f64>,
+    pub next_arrival: Option<f64>,
+    /// Seconds late (early negative).
+    pub delay: Option<f64>,
+    /// The trip's stops served and how many of them the bus passed.
+    pub stops: u32,
+    pub passed: u32,
+    /// The trip is done (the bus waits for the next).
+    pub trip_done: bool,
+    /// The real time (Unix seconds) and the game's clock.
+    pub at: f64,
+    pub clock: Option<f64>,
+}
+
 /// A Lua literal of `v` (the assignment for the plugin): every string escaped so that nothing
 /// in a name can end it, numbers as Lua reads them.
 fn lua_value(v: &serde_json::Value, indent: usize, out: &mut String) {
@@ -274,6 +402,25 @@ pub fn write_notices(plugin_dir: &Path, notices: &[Notice]) -> std::io::Result<(
     write_atomic(&plugin_dir.join(DATA_DIR).join(NOTICES_FILE), &text)
 }
 
+/// The driver's inbox for a game that reads it while it runs (written only when it changed:
+/// whether it was).
+pub fn write_inbox(plugin_dir: &Path, inbox: &Inbox) -> std::io::Result<bool> {
+    let inbox = Inbox { bridge: BRIDGE, ..inbox.clone() };
+    let text = serde_json::to_string_pretty(&inbox).unwrap_or_else(|_| "{}".into());
+    let path = plugin_dir.join(DATA_DIR).join(MESSAGES_FILE);
+    if std::fs::read_to_string(&path).ok().as_deref() == Some(text.as_str()) {
+        return Ok(false);
+    }
+    write_atomic(&path, &text)?;
+    Ok(true)
+}
+
+/// How the duty stands, as the plugin last wrote it.
+pub fn read_status(plugin_dir: &Path) -> Option<Status> {
+    let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(STATUS_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 /// The plugin's last handshake, if it ever ran.
 pub fn read_hello(plugin_dir: &Path) -> Option<Hello> {
     let text = std::fs::read_to_string(plugin_dir.join(DATA_DIR).join(HELLO_FILE)).ok()?;
@@ -292,14 +439,34 @@ pub struct ReportReader {
 impl ReportReader {
     /// The reports added to the plugin's file since the last call.
     pub fn read_new(&mut self, plugin_dir: &Path) -> Vec<Report> {
-        let path = plugin_dir.join(DATA_DIR).join(REPORTS_FILE);
-        let Ok(mut f) = std::fs::File::open(&path) else { return Vec::new() };
+        read_lines(&mut self.offset, &plugin_dir.join(DATA_DIR).join(REPORTS_FILE))
+    }
+}
+
+/// Reads `data/replies.jsonl` as it grows, as [`ReportReader`] reads the reports.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReplyReader {
+    pub offset: u64,
+}
+
+impl ReplyReader {
+    /// The replies added to the plugin's file since the last call.
+    pub fn read_new(&mut self, plugin_dir: &Path) -> Vec<Reply> {
+        read_lines(&mut self.offset, &plugin_dir.join(DATA_DIR).join(REPLIES_FILE))
+    }
+}
+
+/// The lines of a JSON-lines file added since `offset` (moved on past them).
+fn read_lines<T: serde::de::DeserializeOwned>(offset: &mut u64, path: &Path) -> Vec<T> {
+    {
+        let Ok(mut f) = std::fs::File::open(path) else { return Vec::new() };
         let len = f.metadata().map(|m| m.len()).unwrap_or(0);
         // (a file shorter than what was read was started again: from its beginning)
-        if len < self.offset {
-            self.offset = 0;
+        if len < *offset {
+            *offset = 0;
         }
-        if f.seek(SeekFrom::Start(self.offset)).is_err() {
+        if f.seek(SeekFrom::Start(*offset)).is_err() {
             return Vec::new();
         }
         let mut bytes = Vec::new();
@@ -307,7 +474,7 @@ impl ReportReader {
             return Vec::new();
         }
         let Some(end) = bytes.iter().rposition(|b| *b == b'\n') else { return Vec::new() };
-        self.offset += end as u64 + 1;
+        *offset += end as u64 + 1;
         String::from_utf8_lossy(&bytes[..end]).lines().filter_map(|l| serde_json::from_str(l.trim()).ok()).collect()
     }
 }
@@ -329,6 +496,11 @@ pub fn from_log(log: &str) -> (Option<Hello>, Vec<Report>) {
         }
     }
     (hello, reports)
+}
+
+/// The replies a plugin without file functions put into the game's log, in order.
+pub fn replies_from_log(log: &str) -> Vec<Reply> {
+    log.lines().filter_map(|l| l.find(LOG_REPLY).and_then(|k| serde_json::from_str(l[k + LOG_REPLY.len()..].trim()).ok())).collect()
 }
 
 #[cfg(test)]
@@ -401,5 +573,32 @@ mod tests {
         std::fs::write(d.join(DATA_DIR).join(HELLO_FILE), "{\"api\":1,\"functions\":{\"duty.get\":true},\"newer\":[1]}").unwrap();
         let h = read_hello(&d).unwrap();
         assert_eq!((h.api, h.functions.get("duty.get")), (1, Some(&true)));
+    }
+
+    #[test]
+    fn the_messages_channel_goes_both_ways() {
+        let d = dir("messages");
+        let inbox = Inbox { line: "Linie5".into(), tour: "1".into(), messages: vec![InboxMsg { id: 3, text: "You are running 6 min late".into(), priority: "info".into(), ..InboxMsg::default() }], ..Inbox::default() };
+        // written once, again only when it changed
+        assert!(write_inbox(&d, &inbox).unwrap());
+        assert!(!write_inbox(&d, &inbox).unwrap());
+        let back: Inbox = serde_json::from_str(&std::fs::read_to_string(d.join(DATA_DIR).join(MESSAGES_FILE)).unwrap()).unwrap();
+        assert_eq!((back.bridge, back.messages[0].id), (BRIDGE, 3));
+        // the replies as they come, a half line waiting
+        let file = d.join(DATA_DIR).join(REPLIES_FILE);
+        std::fs::write(&file, "{\"kind\":\"delivered\",\"id\":3,\"uid\":\"a1\"}\n{\"kind\":\"acc").unwrap();
+        let mut r = ReplyReader::default();
+        let first = r.read_new(&d);
+        assert_eq!((first.len(), first[0].kind.as_str(), first[0].id), (1, "delivered", 3));
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
+        std::io::Write::write_all(&mut f, b"ept\",\"id\":3}\n").unwrap();
+        assert_eq!(r.read_new(&d)[0].kind, "accept");
+        // the status, and the log of a game without files
+        assert!(read_status(&d).is_none());
+        std::fs::write(d.join(DATA_DIR).join(STATUS_FILE), "{\"line\":\"10\",\"trip\":2,\"delay\":390.0}").unwrap();
+        let st = read_status(&d).unwrap();
+        assert_eq!((st.line.as_str(), st.trip, st.delay), ("10", 2, Some(390.0)));
+        let log = "[lua omsihub] OMSIHUB-REPLY {\"kind\":\"quick\",\"key\":\"breakdown\"}\n[lua omsihub] OMSIHUB-REPORT {}\n";
+        assert_eq!(replies_from_log(log)[0].key, "breakdown");
     }
 }

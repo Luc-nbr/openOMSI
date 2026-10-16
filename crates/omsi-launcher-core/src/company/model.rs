@@ -980,6 +980,10 @@ pub struct Company {
     /// a file of before: the euro).
     #[serde(default)]
     pub currency: super::currency::Currency,
+    /// The messages between the control room and the drivers (`messages`; a file of before:
+    /// none).
+    #[serde(default)]
+    pub messages: super::messages::Messages,
 }
 
 fn one() -> f64 {

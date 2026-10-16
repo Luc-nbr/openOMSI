@@ -51,6 +51,9 @@ pub static FEATURES: &[Feature] = &[
     Feature { id: "display_font", label: "The display font chosen for the bus", needs: &["bus.set_display_font"], essential: false, fallback: "The bus's own display font" },
     Feature { id: "editor", label: "The map editor opened from the editors", needs: &["game.action"], essential: false, fallback: "Open the object editor in the game with Ctrl+Shift+E" },
     Feature { id: "ibis", label: "The IBIS typed as Omsi-Hub says (after the duty order, or by you)", needs: &["duty.set_auto_ibis", "duty.type_ibis"], essential: false, fallback: "The game types the IBIS as each trip begins" },
+    Feature { id: "messages", label: "Messages from the control room, and your replies", needs: &["files.read", "json.decode", "files.append", "ui.set"], essential: false, fallback: "Messages wait on the Operations page and the phone" },
+    Feature { id: "message_actions", label: "Instructions carried out in the game (short-turn, out of service, relief)", needs: &["duty.skip_to", "duty.finish", "duty.trip_stops"], essential: false, fallback: "You carry instructions out yourself" },
+    Feature { id: "message_sound", label: "A sound for each message", needs: &["audio.play"], essential: false, fallback: "Messages come without a sound" },
 ];
 
 /// The notes [`Compat`] gives, for the player (English: the launcher translates them).

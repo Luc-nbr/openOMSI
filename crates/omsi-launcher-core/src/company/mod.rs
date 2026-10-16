@@ -44,6 +44,8 @@ pub mod finance;
 pub mod holidays;
 pub mod inbox;
 pub mod lateness;
+// (the control room and its drivers: a light CAD/AVL, docs/omsihub/MESSAGES.md)
+pub mod messages;
 pub mod fleetmap;
 pub mod incidents;
 // (the lines' income and passengers on the UK model: fares by ticket, concessions, BSOG)
@@ -205,6 +207,7 @@ pub fn found(f: &Founding, profile: &str) -> Company {
         sandbox: sandbox::CAREER,
         country: if names::known(&f.country) { names::pool(&f.country).key.clone() } else { names::guess(&f.map, &f.map_name).to_string() },
         currency: f.currency,
+        messages: Default::default(),
     };
     // (Casual buys quickly; the buying chosen is kept for the other modes)
     autopilot::set_game_mode(&mut c, f.game_mode);

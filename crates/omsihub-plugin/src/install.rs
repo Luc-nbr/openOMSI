@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// The plugin's name: its folder in the plugins folder.
 pub const NAME: &str = "omsihub";
 /// The plugin's version; `lua/main.lua` says the same (a test keeps the two the same).
-pub const VERSION: &str = "1.5.0";
+pub const VERSION: &str = "1.6.0";
 /// The plugin's files.
 pub const FILES: &[(&str, &str)] = &[
     ("main.lua", include_str!("../lua/main.lua")),
@@ -30,6 +30,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("watch.lua", include_str!("../lua/watch.lua")),
     ("board.lua", include_str!("../lua/board.lua")),
     ("signon.lua", include_str!("../lua/signon.lua")),
+    ("messages.lua", include_str!("../lua/messages.lua")),
 ];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -117,7 +118,74 @@ pub const TEXTS: &[&str] = &[
     "The duty's codes go to the IBIS as soon as you accept it.",
     "Accept duty",
     "Sign off",
+    // the control room's messages (`lua/messages.lua`)
+    "Turned back: the next trip goes on from %{stop}",
+    "Short-turn",
+    "Turn back at %{stop}",
+    "Out of service to %{stop}: no more stops on this trip",
+    "Out of service",
+    "A spare bus takes over: take your bus back to the depot",
+    "Spare bus",
+    "Hold here for %{m} min",
+    "Hold",
+    "Your relief takes over here: your duty ends",
+    "Relief",
+    "Control",
+    "Hold: %{time} left",
+    "No messages",
+    "Accept",
+    "Decline",
+    "Accepted",
+    "Declined",
+    "Read",
+    "Hide",
+    "Report to control",
+    "F9: messages · F10: use the panels with the mouse",
+    "Hold over: carry on",
+    "Sent to control",
 ];
+
+/// The sounds of the control room's messages (`lua/messages.lua`), made here as small WAV files:
+/// a soft tone for an info, two rising for an instruction, a louder alarm for an urgent one.
+pub fn sounds() -> Vec<(&'static str, Vec<u8>)> {
+    vec![("msg_info.wav", chime(&[(880.0, 0.12)])), ("msg_instruction.wav", chime(&[(784.0, 0.11), (1046.5, 0.16)])), ("msg_urgent.wav", chime(&[(1318.5, 0.12), (988.0, 0.12), (1318.5, 0.12), (988.0, 0.18)]))]
+}
+
+/// Tones one after the other (Hz, seconds), each with a short fade in and out: a 16-bit mono WAV
+/// at 22 050 Hz.
+fn chime(tones: &[(f64, f64)]) -> Vec<u8> {
+    const RATE: u32 = 22_050;
+    let mut pcm: Vec<i16> = Vec::new();
+    for &(hz, secs) in tones {
+        let n = (secs * RATE as f64) as usize;
+        let fade = (RATE as usize / 100).max(1);
+        for i in 0..n {
+            let t = i as f64 / RATE as f64;
+            let edge = (i.min(n - 1 - i) as f64 / fade as f64).min(1.0);
+            let v = (std::f64::consts::TAU * hz * t).sin() * 0.6 * edge * (1.0 - 0.5 * i as f64 / n as f64);
+            pcm.push((v * i16::MAX as f64) as i16);
+        }
+        pcm.extend(std::iter::repeat_n(0, RATE as usize / 40));
+    }
+    let data = (pcm.len() * 2) as u32;
+    let mut out = Vec::with_capacity(44 + data as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&RATE.to_le_bytes());
+    out.extend_from_slice(&(RATE * 2).to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data.to_le_bytes());
+    for x in pcm {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    out
+}
 /// What Omsi-Hub put there, beside the plugin's files.
 pub const STAMP: &str = "omsihub-plugin.json";
 /// A game's list of the plugins switched off, in its plugins folder.
@@ -215,6 +283,12 @@ pub fn install(plugins: &Path) -> std::io::Result<Status> {
             std::fs::write(&path, text)?;
         }
     }
+    for (name, bytes) in sounds() {
+        let path = dir.join(name);
+        if std::fs::read(&path).ok().as_deref() != Some(bytes.as_slice()) {
+            std::fs::write(&path, bytes)?;
+        }
+    }
     let stamp = serde_json::to_string_pretty(&Stamp { version: VERSION.into(), bridge: crate::bridge::BRIDGE }).unwrap_or_default();
     std::fs::write(dir.join(STAMP), stamp)?;
     set_listed(plugins, false)?;
@@ -284,6 +358,9 @@ mod tests {
         let s = install(&plugins).unwrap();
         assert_eq!((s.state, s.version.as_deref()), (State::On, Some(VERSION)));
         assert!(plugins.join("omsihub/main.lua").is_file() && plugins.join("omsihub/hubjson.lua").is_file());
+        // (the messages' sounds: WAV files the game plays)
+        let wav = std::fs::read(plugins.join("omsihub/msg_urgent.wav")).unwrap();
+        assert!(wav.starts_with(b"RIFF") && &wav[8..16] == b"WAVEfmt " && wav.len() > 10_000);
         std::fs::create_dir_all(plugins.join("omsihub/data")).unwrap();
         std::fs::write(plugins.join("omsihub/data/reports.jsonl"), "{}\n").unwrap();
         // off: parked with its data, nothing left for the game to load
