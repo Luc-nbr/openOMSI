@@ -239,27 +239,6 @@ impl ApplicationHandler for App {
                     k => k,
                 };
                 if let PhysicalKey::Code(code) = physical {
-                    // (Enter puts the card of the trip just ended away, when nothing else on
-                    // the screen wants it: not a vehicle being placed, the object editor's
-                    // pick, a tutorial's next page or VR's navigator being placed)
-                    if event.state == ElementState::Pressed
-                        && !event.repeat
-                        && matches!(code, KeyCode::Enter | KeyCode::NumpadEnter)
-                        && self.menus.game_menu.is_none()
-                        && self.menus.chooser.is_none()
-                        && !lan::chat_open(&self.net.remotes)
-                        && !self.input.keys.contains(&KeyCode::AltLeft)
-                        && !self.input.keys.contains(&KeyCode::AltRight)
-                        // (a plain Enter: Ctrl+NumpadEnter is the IBIS's)
-                        && !self.input.keys.iter().any(|k| matches!(k, KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::ShiftLeft | KeyCode::ShiftRight))
-                        && self.menus.placing.is_none()
-                        && self.menus.editor.is_none()
-                        && self.xr.vr_nav_edit.is_none()
-                        && !self.menus.tutorial.as_ref().is_some_and(|t| !t.hidden && self.net.lan.is_none())
-                        && self.session.trip_report.dismiss()
-                    {
-                        return;
-                    }
                     self.on_key(
                         event_loop,
                         code,
@@ -383,17 +362,6 @@ impl ApplicationHandler for App {
                     }
                 } else {
                     let pressed = state == ElementState::Pressed;
-                    // (a click on the card of the trip just ended puts it away - not while the
-                    // click places a vehicle or works the object editor)
-                    if pressed
-                        && self.menus.game_menu.is_none()
-                        && self.menus.placing.is_none()
-                        && self.menus.editor.is_none()
-                        && self.xr.vr_nav_edit.is_none()
-                        && self.session.trip_report.click(self.input.cursor.0, self.input.cursor.1)
-                    {
-                        return;
-                    }
                     self.input.buttons_held.0 = pressed;
                     // the right button already down (looking round): both held zoom, and
                     // the click works nothing in the cab
@@ -554,10 +522,6 @@ impl App {
         }
         if self.xr.vr_nav_edit.is_some() { self.vr_nav_scroll(amount); return; }
         if self.devtools_wheel(amount) {
-            return;
-        }
-        // over a trip's card the wheel scrolls its stops (and keeps it open)
-        if self.menus.game_menu.is_none() && self.session.trip_report.wheel(amount, self.input.cursor.0, self.input.cursor.1) {
             return;
         }
         // over a mirror panel the wheel resizes it (Shift: wider or narrower)

@@ -101,7 +101,6 @@ mod telemetry;
 use omsi_scene::threads;
 mod tiles;
 mod traffic;
-mod trip_report;
 // red lights, speed cameras and comfort: what a trip is judged by besides the timetable
 mod drive_watch;
 mod view_sync;
@@ -676,7 +675,6 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             pumping: None,
             career: Default::default(),
             journey: None,
-            trip_report: Default::default(),
             drive_watch: Default::default(),
             wetness: 0.0,
             cloud_drift: [0.0; 4],

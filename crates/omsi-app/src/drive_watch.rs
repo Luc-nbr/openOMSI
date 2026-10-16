@@ -350,7 +350,8 @@ impl DriveWatch {
     }
 
     /// Put what the watch saw on a trip into its report: the trip ended at `now` (career
-    /// seconds) after `run.seconds`.
+    /// seconds) after `run.seconds`. (The trip's report is the Omsi-Hub plugin's now.)
+    #[allow(dead_code)]
     pub fn fill(&self, run: &mut TripRun, now: f64) {
         let t = self.between(now - run.seconds.max(0.0), now);
         run.watched = true;
@@ -414,6 +415,15 @@ pub(crate) fn notice(o: &Offence) -> Notice {
 
 // --- on the screen ------------------------------------------------------------------------------
 
+/// Multisampling for the notice's texture, as the navigator's (`navigator::map_samples`).
+fn samples(format: wgpu::TextureFormat) -> u32 {
+    if format.guaranteed_format_features(wgpu::Features::empty()).flags.sample_count_supported(4) {
+        4
+    } else {
+        1
+    }
+}
+
 /// The notice card's size at scale 1.
 pub(crate) const NOTICE_W: f32 = 400.0;
 pub(crate) const NOTICE_H: f32 = 64.0;
@@ -457,7 +467,7 @@ impl DriveWatch {
         }
         let look = self.look.get_or_insert_with(|| {
             let atlas = Atlas::new(1024);
-            Look { gpu: Gpu::new(&renderer.device, renderer.format(), crate::trip_report::samples(renderer.format()), atlas.size), atlas, fonts: Fonts::hanken(), card: None, flash: None }
+            Look { gpu: Gpu::new(&renderer.device, renderer.format(), samples(renderer.format()), atlas.size), atlas, fonts: Fonts::hanken(), card: None, flash: None }
         });
         // the flash: white over the whole view, gone in under half a second
         if self.flash > 0.0 {

@@ -16,11 +16,13 @@
 //! * `addon_reports` - the plugin's reports since the last call, its trips booked first
 //!   (`book`).
 //!
-//! In the add-on mode every start of a game gives the plugin its assignment first
-//! (`assign_duty`: the company's duty, or the player's own drive), and the page's poll books
-//! what the plugin reported (`book`): each trip goes into the driver's record
-//! (`~/.openomsi/trips/<driver>.jsonl`, `core::append_trip`), which the company's day takes in
-//! as it takes the trips Omsi-Hub's own game writes there.
+//! The plugin carries the trip's card and the driver's record, so it is in whichever game
+//! Omsi-Hub starts: the chosen openOMSI in the add-on mode, else Omsi-Hub's own copy of the
+//! game, where the launcher puts it (and keeps it up to date) by itself (`own_plugin`). Every
+//! start of a game gives the plugin its assignment first (`assign_duty`: the company's duty,
+//! or the player's own drive), and the page's poll books what the plugin reported (`book`):
+//! each trip goes into the driver's record (`~/.openomsi/trips/<driver>.jsonl`,
+//! `core::append_trip`), which the company's day takes in.
 //!
 //! The choice is kept in `~/.openomsi/omsihub-addon.json`.
 
@@ -45,8 +47,9 @@ pub struct Choice {
     /// (asked once per program, where nothing else said it).
     pub probed: String,
     pub probed_at: u64,
-    /// How far the plugin's reports were read.
+    /// How far the plugin's reports were read: the chosen openOMSI's, Omsi-Hub's own game's.
     pub reports: ReportReader,
+    pub own_reports: ReportReader,
     /// The add-on mode: the chosen openOMSI is started for the drives (off: Omsi-Hub's own copy).
     pub use_folder: bool,
     /// The last assignment given in the add-on mode: its reports are booked for its driver.
@@ -140,7 +143,50 @@ fn apply(c: &Choice) {
 /// command).
 pub fn apply_saved() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| apply(&load()));
+    ONCE.call_once(|| {
+        let c = load();
+        apply(&c);
+        if !in_addon_mode(&c) {
+            own_plugin();
+        }
+    });
+}
+
+/// The plugins folder of Omsi-Hub's own copy of the game (its content folder's, as the game
+/// reads them).
+fn own_plugins_dir() -> Option<PathBuf> {
+    core::content_dir().map(|c| detect::plugins_dir_of(&c))
+}
+
+/// The plugin put into Omsi-Hub's own game, or brought up to date there - not when the player
+/// switched it off. Its folder when it is on.
+fn own_plugin() -> Option<PathBuf> {
+    let dir = own_plugins_dir()?;
+    match install::status(&dir).state {
+        install::State::On => {}
+        install::State::Off => return None,
+        install::State::Missing | install::State::Outdated => match install::install(&dir) {
+            Ok(_) => {
+                core::log_to_file(&format!("add-on: the Omsi-Hub plugin {} put into {}", install::VERSION, dir.display()));
+                write_texts(&install::plugin_dir(&dir));
+            }
+            Err(e) => {
+                core::log_to_file(&format!("add-on: the Omsi-Hub plugin not put into {}: {e}", dir.display()));
+                return None;
+            }
+        },
+    }
+    Some(dir)
+}
+
+/// The plugins folder of the game Omsi-Hub starts now: the chosen openOMSI's in the add-on
+/// mode, else its own game's (the plugin put there first).
+fn game_plugins_dir(c: &Choice) -> Result<PathBuf, String> {
+    if in_addon_mode(c) {
+        plugins_dir()
+    } else {
+        own_plugin().ok_or_else(|| "The Omsi-Hub plugin is not switched on in this openOMSI".to_string())
+    }
 }
 
 /// Whether the drives go to the chosen openOMSI now.
@@ -235,7 +281,7 @@ pub fn plugin_texts(lang: &str) -> std::collections::BTreeMap<String, String> {
 }
 
 fn assign(a: Assignment, lang: &str) -> Answer {
-    let dir = plugins_dir()?;
+    let dir = game_plugins_dir(&load())?;
     let status = install::status(&dir);
     if status.state != install::State::On {
         return Err("The Omsi-Hub plugin is not switched on in this openOMSI".into());
@@ -245,16 +291,13 @@ fn assign(a: Assignment, lang: &str) -> Answer {
     Ok(json!({ "issued": a.issued }))
 }
 
-/// Give the plugin the duty of a drive about to start, in the add-on mode with the plugin on
-/// (otherwise nothing happens): `company` names the company's duty (its name and the duty's
+/// Give the plugin the duty of a drive about to start, where the plugin is on (otherwise
+/// nothing happens): `company` names the company's duty (its name and the duty's
 /// id); a drive of the player's own gets an assignment as well, so that its trips are booked
 /// for the right driver. Said in the launcher's log when it fails: the drive starts anyway.
 pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
     let mut c = load();
-    if !in_addon_mode(&c) {
-        return;
-    }
-    let Ok(dir) = plugins_dir() else { return };
+    let Ok(dir) = game_plugins_dir(&c) else { return };
     if install::status(&dir).state != install::State::On {
         return;
     }
@@ -322,17 +365,17 @@ fn trip_run(r: &bridge::Report, a: Option<&Assigned>) -> Option<core::TripRun> {
     })
 }
 
-/// Book what the plugin reported since the last time (in the add-on mode): each trip into its
-/// driver's record. The reports read are returned.
+/// Book what the plugin of the game Omsi-Hub starts reported since the last time: each trip
+/// into its driver's record. The reports read are returned.
 pub fn book() -> Vec<bridge::Report> {
     let mut c = load();
-    if !in_addon_mode(&c) {
-        return Vec::new();
-    }
-    let Ok(dir) = plugins_dir() else { return Vec::new() };
-    let before = c.reports.offset;
-    let new = c.reports.read_new(&install::plugin_dir(&dir));
-    if c.reports.offset == before {
+    let addon = in_addon_mode(&c);
+    let dir = if addon { plugins_dir().ok() } else { own_plugins_dir() };
+    let Some(dir) = dir else { return Vec::new() };
+    let reader = if addon { &mut c.reports } else { &mut c.own_reports };
+    let before = reader.offset;
+    let new = reader.read_new(&install::plugin_dir(&dir));
+    if reader.offset == before {
         return new;
     }
     let data = core::data_dir();
@@ -349,7 +392,6 @@ pub fn book() -> Vec<bridge::Report> {
 }
 
 fn reports() -> Answer {
-    plugins_dir()?;
     serde_json::to_value(book()).map_err(|e| e.to_string())
 }
 

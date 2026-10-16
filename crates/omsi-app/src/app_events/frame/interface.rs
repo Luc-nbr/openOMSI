@@ -67,14 +67,11 @@ impl App {
                 steps::push_mirror_hud(&self.gfx.mirror_hud, scene, w, hud, (self.input.cursor.0 - hud[0], self.input.cursor.1));
             }
         }
-        // the card of the trip just ended (`trip_report`): over the navigator, under the
-        // menus; its time runs with the game
+        // a red light or a speed camera: its notice, over the navigator, under the menus; its
+        // time runs with the game
         if let (Some(r), Some(scene)) = (self.renderer.as_ref(), self.scene.as_mut()) {
             let running = !self.paused && self.menus.game_menu.is_none();
-            self.session.trip_report.frame(r, scene, hud, &self.settings, dt, running);
-            // a red light or a speed camera: its notice, under the trip's card if one is up
-            let under = self.session.trip_report.bottom();
-            self.session.drive_watch.frame(r, scene, hud, self.settings.ui_scale, under, dt, running);
+            self.session.drive_watch.frame(r, scene, hud, self.settings.ui_scale, None, dt, running);
         }
         self.frame_ui_draw(dt, hud, vr_active, plugin_focus, &notes, tooltip, menu_lines, menu_tabs);
         // the loading screen fading over the first pictures, over all of the interface

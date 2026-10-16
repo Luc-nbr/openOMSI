@@ -21,9 +21,7 @@ impl App {
             self.world.as_ref(),
             self.paused,
         ) {
-            // (the stop the bus is at before the update: the one `served` is of)
-            let due = (d.trip_index, d.next_stop);
-            let served = steps::duty_step(
+            steps::duty_step(
                 d,
                 p,
                 w,
@@ -35,16 +33,7 @@ impl App {
                 true,
                 Some(&mut self.integrations.plugin_events),
             );
-            // (a trip that ended: it into the driver's record, and its card once the bus stands)
-            let standing = p.vehicle.physics.velocity_kmh().abs() < crate::trip_report::STANDING_KMH;
-            self.session.trip_report.observe(d, due, served, &self.session.career, &self.session.drive_watch, &self.args.map, self.args.bus.as_deref().unwrap_or_default(), standing);
         }
-        if self.session.duty.is_none() {
-            self.session.trip_report.forget();
-        }
-        // (a trip's card waiting for the bus to stand: the duty may have ended meanwhile)
-        let standing = self.player.as_ref().is_some_and(|p| p.vehicle.physics.velocity_kmh().abs() < crate::trip_report::STANDING_KMH);
-        self.session.trip_report.standing(standing);
         if let Some(p) = self.player.as_mut() {
             let riders = self.session.humans.as_ref().map(|h| h.riding()).unwrap_or(0);
             // (a frame after the session was written must not start another one)

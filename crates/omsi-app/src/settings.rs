@@ -147,8 +147,7 @@ pub struct Settings {
     /// start, at every next trip, with Shift+U); off, the driver types them.
     pub ibis_auto: bool,
     /// A summary of each trip of a duty as it ends: its stops with their times as planned and
-    /// as driven (`game_panels::trip_summary`). Off unless chosen: the trip's card
-    /// (`trip_report`) shows its stops and their times already, and two cards came up at once.
+    /// as driven (`game_panels::trip_summary`).
     pub trip_summary: bool,
     /// Uncompressed texture files are compressed on loading where that leaves the picture
     /// close (DXT files always stay compressed on a GPU that takes them).
