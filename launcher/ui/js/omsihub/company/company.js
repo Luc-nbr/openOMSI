@@ -38,6 +38,7 @@ import { RosterFlowPage } from '../rosterflow/index.js';
 import { MorePage, MORE_TABS } from './pages.js';
 // Omsi-Hub 6/6: the company's own guided tour
 import { startCompanyTour } from '../tour.js';
+import { SessionWatch } from './session.js';
 // (Beta 58: "Play together"; Beta 61: the Multiplayer page, and the company's pages of a friend
 // who joined one - `S.co.remote`, its commands relayed to the boss's launcher)
 import { TogetherButton, TOGETHER_TAB, backToMenu } from './together.js';
@@ -263,6 +264,7 @@ export function CompanyScreen() {
     return html`<div class="co" data-tab="5">
       <${Guard}><${RosterFlowPage} /></${Guard}>
       <${Guard}><${Overlays} founding=${false} /></${Guard}>
+      ${c.remote && html`<${SessionWatch} />`}
       ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
     </div>`;
   }
@@ -270,6 +272,7 @@ export function CompanyScreen() {
     <${Guard}><${Bar} open=${open} choosing=${choosing} read=${read} /></${Guard}>
     <${Guard}>${body}</${Guard}>
     ${read && html`<${Guard}><${Overlays} founding=${founding || choosing} /></${Guard}>`}
+    ${c.remote && html`<${SessionWatch} />`}
     ${c.notice && Date.now() - c.notice.at < 9000 && html`<div class=${'co-notice' + (c.notice.error ? ' error' : '')} key=${c.notice.at}>${c.notice.text}</div>`}
   </div>`;
 }
