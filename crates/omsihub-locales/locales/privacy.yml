@@ -124,3 +124,17 @@ _version: 2
   pl: "Zapisy w chmurze są dostępne wyłącznie dla właściciela konta."
   ru: "Облачные сохранения доступны только владельцу аккаунта."
   uk: "Хмарні збереження доступні лише власникові облікового запису."
+"Accept and continue":
+  de: "Akzeptieren und fortfahren"
+  fr: "Accepter et continuer"
+  nl: "Accepteren en doorgaan"
+  pl: "Zaakceptuj i kontynuuj"
+  ru: "Принять и продолжить"
+  uk: "Прийняти та продовжити"
+"Before an account is created or used, the Privacy Statement must be accepted.":
+  de: "Bevor ein Konto erstellt oder verwendet wird, muss die Datenschutzerklärung akzeptiert werden."
+  fr: "Avant qu'un compte soit créé ou utilisé, la déclaration de confidentialité doit être acceptée."
+  nl: "Voordat een account wordt aangemaakt of gebruikt, moet de Privacyverklaring worden geaccepteerd."
+  pl: "Przed utworzeniem lub użyciem konta należy zaakceptować oświadczenie o ochronie prywatności."
+  ru: "Перед созданием или использованием аккаунта необходимо принять заявление о конфиденциальности."
+  uk: "Перед створенням або використанням облікового запису необхідно прийняти заяву про конфіденційність."

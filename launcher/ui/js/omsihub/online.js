@@ -20,7 +20,7 @@ import { language } from '../i18n.js';
 import { Icon, tr } from './bits.js';
 // (the account's cloud saves: the 2 slots - `cloud.js`)
 import { CloudSaves } from './cloud.js';
-import { AgreeBox, PrivacyLink, Statement } from './privacy.js';
+import { askPrivacy, PrivacyLink, Statement } from './privacy.js';
 
 // (the panel's own look, loaded with it)
 const sheet = document.createElement('link');
@@ -171,11 +171,12 @@ const GoogleMark = () =>
   html`<svg class="ol-oa-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 10.2H12v3.9h5.5c-.5 2.5-2.7 4.3-5.5 4.3a6.4 6.4 0 1 1 4.2-11.2l2.8-2.8A10.3 10.3 0 0 0 12 1.7a10.3 10.3 0 1 0 0 20.6c5.6 0 10-3.9 10-10.3 0-.6-.1-1.2-.4-1.8z" /></svg>`;
 
 /** The Google button, or, while the browser has the sign-in, the wait with a cancel. */
-function GoogleSignIn({ agreed, onDone, onError, disabled }) {
+function GoogleSignIn({ onDone, onError, disabled }) {
   const [wait, setWait] = useState(null);
   const name = 'Google';
+  // (the Privacy Statement pops up first; accepted, the browser goes to Google - Luc, Beta 67)
   const go = async () => {
-    if (!agreed) return;
+    if (!(await askPrivacy())) return;
     onError('');
     const r = await act('ol_oauth', { agree: true }, true);
     if (r.error) return onError(r.error);
@@ -193,8 +194,7 @@ function GoogleSignIn({ agreed, onDone, onError, disabled }) {
       <p class="ol-text">${tr('Please sign in with %{name} in the browser window that has opened. Omsi-Hub continues automatically afterwards.', { name })}</p>
       <div class="ol-row"><${Btn} kind="ghost" icon="open_in_new" label=${tr('Open the page again')} onClick=${() => call('open_url', { url: wait.url }).catch(() => {})} /><span class="ol-fill"></span><${Btn} kind="ghost" icon="close" label=${tr('Cancel')} onClick=${() => act('ol_oauth_cancel', {}, true)} /></div>
     </div>`;
-  const hint = agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.');
-  return html`<button type="button" class="hub-btn ol-oa-btn" disabled=${!agreed || disabled} title=${hint} onClick=${go}>
+  return html`<button type="button" class="hub-btn ol-oa-btn" disabled=${disabled} onClick=${go}>
     <${GoogleMark} /><span>${tr('Sign in with %{name}', { name })}</span>
   </button>`;
 }
@@ -209,9 +209,6 @@ function SignedOut({ v }) {
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
-  // (the privacy statement agreed to: needed to make an account and to sign in)
-  const [agreed, setAgreed] = useState(false);
-  const agree = html`<${AgreeBox} on=${agreed} set=${setAgreed} />`;
   const put = (k) => (x) => setF({ ...f, [k]: x });
   const go = (s) => {
     setStep(s);
@@ -232,20 +229,21 @@ function SignedOut({ v }) {
     }
     return r;
   };
-  const signIn = () => agreed && send('ol_sign_in', { email: f.email, password: f.password, agree: true });
+  // (an account that has not accepted the current Privacy Statement is asked right after signing in)
+  const signIn = () => send('ol_sign_in', { email: f.email, password: f.password, agree: false });
   // (an account is made on the website; its display name comes along at the first sign-in here)
-  const create = () => {
-    if (!agreed) return;
+  const create = async () => {
+    if (!(await askPrivacy())) return;
     call('open_url', { url: v?.sign_up_url }).catch((e) => toast(String(e?.message || e), 'error'));
     setErr('');
     setInfo(tr('Create your account on the Omsi-Hub website, confirm your email address, then sign in here.'));
   };
-  const verify = () => agreed && send('ol_verify', { email: f.email, code: f.code, password: f.password, agree: true });
+  const verify = () => send('ol_verify', { email: f.email, code: f.code, password: f.password, agree: false });
   const forgot = async () => {
     const r = await send('ol_forgot', { email: f.email });
     if (r.ok) setStep('reset');
   };
-  const reset = () => agreed && send('ol_reset', { email: f.email, code: f.code, password: f.password, agree: true });
+  const reset = () => send('ol_reset', { email: f.email, code: f.code, password: f.password, agree: false });
   const local = async () => {
     await act('ol_local', { on: true }, true);
     closePanel();
@@ -258,8 +256,7 @@ function SignedOut({ v }) {
       ${!f.email && email}
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" onEnter=${verify} />
       ${!f.password && html`<${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" />`}
-      ${agree}
-      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} disabled=${!agreed} onClick=${verify} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
+      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} onClick=${verify} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
   } else if (step === 'forgot') {
     body = html`<h3>${tr('Forgot your password?')}</h3>
       <p class="ol-text">${tr('We send a code to your email address. With it you choose a new password.')}</p>
@@ -270,18 +267,16 @@ function SignedOut({ v }) {
       <p class="ol-text">${tr('Enter the code we sent to %{email}.', { email: f.email })}</p>
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" />
       <${Field} label=${tr('New password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="new-password" onEnter=${reset} hint=${html`<${Strength} p=${f.password} />`} />
-      ${agree}
-      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} disabled=${!agreed} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${forgot} /></div>`;
+      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${forgot} /></div>`;
   } else {
     body = html`<h3>${tr('Sign in')}</h3>
       ${email}
       <${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" onEnter=${signIn} />
-      ${agree}
-      <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} disabled=${!agreed} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
+      <div class="ol-row"><${Btn} kind="primary" icon="person" label=${tr('Sign in')} busy=${busy} onClick=${signIn} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Forgot your password?')} onClick=${() => go('forgot')} /></div>
       <div class="ol-oa-or"><span>${tr('or')}</span></div>
-      <${GoogleSignIn} agreed=${agreed} disabled=${busy} onError=${(e) => (setErr(e), setInfo(''))} onDone=${(r) => (setErr(''), setInfo(r.message || ''), r.message && toast(r.message, 'ok'))} />
+      <${GoogleSignIn} disabled=${busy} onError=${(e) => (setErr(e), setInfo(''))} onDone=${(r) => (setErr(''), setInfo(r.message || ''), r.message && toast(r.message, 'ok'))} />
       <div class="ol-oa-or"><span>${tr('or')}</span></div>
-      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url || !agreed} title=${agreed ? '' : tr('Please confirm above that you accept the Privacy Statement.')} onClick=${create} /></div>`;
+      <div class="ol-row"><span class="ol-text">${tr('New here?')}</span><${Btn} kind="ghost" icon="open_in_new" label=${tr('Create an account')} disabled=${!v?.sign_up_url} onClick=${create} /></div>`;
   }
   return html`<div class="ol-account">
     <p class="ol-lead">${tr('An account is optional. With one you add friends, see who is online and invite them to your company. Without one, everything else works as before.')}</p>
