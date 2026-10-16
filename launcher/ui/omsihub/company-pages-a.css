@@ -272,3 +272,55 @@
 :root.hub .co-pg-log .co-pg-line { padding: 4px 0; border-bottom: 1px solid var(--pg-line); }
 :root.hub .co-pg-heldgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
 
+/* --- goals & contracts -------------------------------------------------------------------- */
+
+:root.hub .co-pg-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr); gap: 0; background: var(--pg-card); border-radius: var(--pg-r); box-shadow: var(--pg-shadow); padding: 6px; }
+@container (max-width: 760px) { :root.hub .co-pg-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+:root.hub .co-pg-stripcell { display: flex; align-items: center; gap: 12px; padding: 10px 14px; min-width: 0; }
+:root.hub .co-pg-stripcell + .co-pg-stripcell { box-shadow: inset 1px 0 0 var(--pg-line); }
+:root.hub .co-pg-stripcell > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+:root.hub .co-pg-stripcell > div > span:first-child { font-size: var(--pg-small); font-weight: 700; color: var(--pg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:root.hub .co-pg-stripcell b { font-size: 17px; font-weight: 900; color: var(--pg-head); font-variant-numeric: tabular-nums; line-height: 1.2; white-space: nowrap; }
+:root.hub .co-pg-stripicon { flex: none; width: 38px; height: 38px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+:root.hub .co-pg-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+:root.hub .co-pg-pills button { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: var(--pg-card); box-shadow: var(--pg-shadow); color: var(--pg-dim); font: inherit; font-size: var(--co-control); font-weight: 800; cursor: pointer; white-space: nowrap; }
+:root.hub .co-pg-pills button:hover { color: var(--pg-text); }
+:root.hub .co-pg-pills button.on { background-color: var(--hub-accent); color: var(--hub-on-accent); box-shadow: 0 4px 14px rgba(var(--hub-accent-rgb), 0.3); }
+:root.hub .co-pg-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--pg-gap); align-items: start; }
+@container (max-width: 900px) { :root.hub .co-pg-board { grid-template-columns: minmax(0, 1fr); } }
+:root.hub .co-pg-col { border-radius: var(--pg-r); padding: 12px; min-width: 0; display: flex; flex-direction: column; gap: 12px; --tint: var(--co-early); background: color-mix(in srgb, var(--tint) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 16%, transparent); }
+:root.hub .co-pg-col.running { --tint: var(--hub-accent); }
+:root.hub .co-pg-col.done { --tint: var(--co-ok); }
+:root.hub .co-pg-col > header { display: flex; align-items: center; gap: 10px; padding: 2px 4px; min-width: 0; }
+:root.hub .co-pg-col > header b { font-size: var(--co-head); font-weight: 900; color: var(--pg-head); }
+:root.hub .co-pg-colicon { flex: none; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--tint); background: color-mix(in srgb, var(--tint) 16%, transparent); }
+:root.hub .co-pg-count { flex: none; min-width: 24px; height: 22px; padding: 0 7px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: var(--pg-small); font-weight: 900; color: var(--tint); background: color-mix(in srgb, var(--tint) 16%, transparent); }
+:root.hub .co-pg-colempty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 12px 26px; text-align: center; color: var(--pg-dim); font-size: var(--co-rows); line-height: 1.6; }
+:root.hub .co-pg-colempty p { margin: 0; max-width: 300px; }
+:root.hub .co-pg-busart .shade { fill: color-mix(in srgb, var(--hub-text) 8%, transparent); }
+:root.hub .co-pg-busart .body { fill: var(--tint, var(--hub-accent)); opacity: 0.85; }
+:root.hub .co-pg-busart .stripe { fill: var(--pg-card); opacity: 0.55; }
+:root.hub .co-pg-busart .glass { fill: var(--pg-card); opacity: 0.9; }
+:root.hub .co-pg-busart .wheel { fill: var(--hub-text); opacity: 0.75; }
+:root.hub .co-pg-busart .hub { fill: var(--pg-card); }
+:root.hub .co-pg-goal { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; background: var(--pg-card); box-shadow: var(--pg-shadow); min-width: 0; }
+:root.hub .cm-goal.co-pg-goal { margin: 0; }
+:root.hub .co-pg-goalhead { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+:root.hub .co-pg-goalhead > div { min-width: 0; }
+:root.hub .co-pg-goalhead b { display: block; font-size: var(--co-rows); font-weight: 900; color: var(--pg-head); line-height: 1.4; padding-right: 22px; }
+:root.hub .co-pg-goalhead p { margin: 3px 0 0; font-size: var(--pg-small); color: var(--pg-dim); line-height: 1.55; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+:root.hub .co-pg-goalicon { flex: none; width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+:root.hub .co-pg-goalmark { position: absolute; right: 12px; top: 12px; display: inline-flex; }
+:root.hub .co-pg-goal.missed { opacity: 0.8; }
+:root.hub .co-pg-progress { display: flex; flex-direction: column; gap: 5px; }
+:root.hub .co-pg-progress .co-pg-small { font-weight: 800; color: var(--pg-head); font-variant-numeric: tabular-nums; }
+:root.hub .co-pg-services { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr); gap: var(--pg-gap); align-items: start; }
+@container (max-width: 900px) { :root.hub .co-pg-services { grid-template-columns: minmax(0, 1fr); } }
+:root.hub .co-pg-providers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: 12px; }
+:root.hub .co-pg-provider { display: flex; flex-direction: column; align-items: stretch; gap: 7px; padding: 14px; border-radius: 12px; background: var(--pg-soft); box-shadow: inset 0 0 0 1px var(--pg-line); min-width: 0; text-align: center; }
+:root.hub .cm-provider.co-pg-provider { position: relative; }
+:root.hub .co-pg-provider .co-pg-goalicon { align-self: center; }
+:root.hub .co-pg-provider.mine { background: var(--pg-card); box-shadow: inset 0 0 0 2px var(--hub-accent), var(--pg-shadow); }
+:root.hub .co-pg-providername { font-size: 15px; font-weight: 900; color: var(--pg-head); }
+:root.hub .co-pg-providerprice { font-size: 18px; font-weight: 900; color: var(--pg-head); font-variant-numeric: tabular-nums; }
+
