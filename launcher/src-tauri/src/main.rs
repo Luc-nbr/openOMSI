@@ -163,7 +163,11 @@ fn main() {
         .map(|app| {
             app.run(|_, e| match e {
                 tauri::RunEvent::ExitRequested { api, .. } if omsi_launcher_api::installing() => api.prevent_exit(),
-                tauri::RunEvent::Exit => service::stop(),
+                tauri::RunEvent::Exit => {
+                    // (a company session shared: its players are told it closed - Beta 63)
+                    omsi_launcher_api::omsihub::together::quit();
+                    service::stop()
+                }
                 _ => {}
             })
         });

@@ -539,7 +539,7 @@ fn who_name(c: &Company, w: Option<Who>) -> String {
         Some(Who::Staff(id)) => c.employee(id).map(|e| e.name.clone()).unwrap_or_else(|| "?".into()),
         Some(Who::Player) => tr("You"),
         Some(Who::Agency) => tr("Agency driver"),
-        Some(Who::Guest(g)) => omsi_launcher_lib::company::together::guest_name(c, g),
+        Some(Who::Guest(g)) => crate::omsihub::together::guest_label(c, g),
         None => tr("Nobody"),
     }
 }
