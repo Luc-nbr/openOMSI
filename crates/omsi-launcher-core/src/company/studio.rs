@@ -1268,7 +1268,8 @@ pub fn can_cut(c: &Company, tours: &[TourOfDay], i: usize, at: usize) -> Result<
 /// Cut block `i` before its trip `at`: a new duty begins there (`can_cut`).
 pub fn cut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usize) -> Result<(), &'static str> {
     can_cut(c, tours, i, at)?;
-    guard_block(c, weekday, tours, i)?;
+    let k = network::duties_of(&tours[i]).iter().position(|r| r.contains(&at)).ok_or(NOT_FOUND)?;
+    guard_piece(c, weekday, tours, i, k)?;
     let mut s = starts(&tours[i]);
     s.push(at);
     s.sort_unstable();
@@ -1350,7 +1351,8 @@ pub fn can_cut_mid(c: &Company, tours: &[TourOfDay], info: &[LineInfo], i: usize
 /// they are (the piece cut keeps its first trip: its duty keeps the first half).
 pub fn cut_mid(c: &mut Company, weekday: u8, tours: &[TourOfDay], info: &[LineInfo], i: usize, j: usize, stop: usize) -> Result<(), &'static str> {
     can_cut_mid(c, tours, info, i, j, stop)?;
-    guard_block(c, weekday, tours, i)?;
+    let k = network::duties_of(&tours[i]).iter().position(|r| r.contains(&j)).ok_or(NOT_FOUND)?;
+    guard_piece(c, weekday, tours, i, k)?;
     let t = &tours[i];
     let x = &t.trips[j];
     let name = trip_info(info.iter().find(|l| same(&l.name, &t.line)).ok_or(NOT_FOUND)?, x).and_then(|y| y.stops.get(stop)).map(|s| s.name.trim().to_string()).ok_or(NOT_FOUND)?;
@@ -1368,9 +1370,10 @@ pub fn cut_mid(c: &mut Company, weekday: u8, tours: &[TourOfDay], info: &[LineIn
 /// is whole again.
 pub fn uncut(c: &mut Company, weekday: u8, tours: &[TourOfDay], i: usize, at: usize) -> Result<(), &'static str> {
     let t = tours.get(i).ok_or(NOT_FOUND)?;
-    guard_block(c, weekday, tours, i)?;
     let pieces = network::duties_of(t);
     let k = pieces.iter().position(|r| r.start == at && at > 0).ok_or(NO_CUT)?;
+    guard_piece(c, weekday, tours, i, k - 1)?;
+    guard_piece(c, weekday, tours, i, k)?;
     let (a, b) = (&pieces[k - 1], &pieces[k]);
     let to = t.trips[a.start..b.end].iter().map(|x| x.arr).max().unwrap_or(0);
     if to - t.trips[a.start].dep > DAY_MAX {
@@ -1493,6 +1496,21 @@ fn guard_block(c: &Company, weekday: u8, tours: &[TourOfDay], i: usize) -> Resul
         return Err(LOCKED);
     }
     if (0..network::duties_of(t).len()).any(|k| super::rosterflow::piece_locked(c, weekday, tours, i, k)) {
+        return Err(DUTY_LOCKED);
+    }
+    Ok(())
+}
+
+/// Piece `k` of block `i` may be cut or joined: the bus is not locked, and the duty the piece is
+/// in is not. A locked duty keeps its own pieces, not the rest of its bus's day (Luc, Beta 65: a
+/// later trip of the bus could not be cut for a relief while a duty with an earlier one was
+/// locked) - the bus's other cuts stay where they are (`cut`, `cut_mid`, `uncut`).
+fn guard_piece(c: &Company, weekday: u8, tours: &[TourOfDay], i: usize, k: usize) -> Result<(), &'static str> {
+    let t = tours.get(i).ok_or(NOT_FOUND)?;
+    if super::rosterflow::block_locked(c, weekday, &t.line, &t.tour) {
+        return Err(LOCKED);
+    }
+    if super::rosterflow::piece_locked(c, weekday, tours, i, k) {
         return Err(DUTY_LOCKED);
     }
     Ok(())

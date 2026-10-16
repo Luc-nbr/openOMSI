@@ -127,3 +127,34 @@ fn a_split_leaves_every_other_duty_as_it_is() {
     assert_eq!(duties_now(&c, &l).len(), 3);
     assert!(duties_now(&c, &l).contains(&joined));
 }
+
+#[test]
+fn a_locked_duty_keeps_its_own_pieces_and_the_rest_of_its_bus_can_be_cut() {
+    let l = line5();
+    let mut c = two_buses_one_joined(&l);
+    let w = wd(&c);
+    let key = joined_key(&c, &l);
+    set_duty_lock(&mut c, w, &key, true);
+    let locked = duties_now(&c, &l).into_iter().find(|(k, _)| k.is(&key)).unwrap();
+    let tours = day(&c, &l);
+    let one = at(&tours, "1");
+    // inside the locked duty's piece: refused
+    assert_eq!(st::cut(&mut c, w, &tours, one, 2), Err(st::DUTY_LOCKED));
+    // a later trip of the same bus, another driver's (Beta 65: refused, the bus held a locked
+    // duty's piece): a relief there
+    assert_eq!(st::cut(&mut c, w, &tours, one, 6), Ok(()));
+    let after = duties_now(&c, &l);
+    assert_eq!(after.len(), 4);
+    assert!(after.contains(&locked), "the locked duty as it was: {after:?}");
+    assert!(duty_locked(&c, w, &key));
+    // joined again there; the cut between the locked piece and the next is the lock's
+    let tours = day(&c, &l);
+    let one = at(&tours, "1");
+    assert_eq!(st::uncut(&mut c, w, &tours, one, 4), Err(st::DUTY_LOCKED));
+    assert_eq!(st::uncut(&mut c, w, &tours, one, 6), Ok(()));
+    assert!(duties_now(&c, &l).contains(&locked));
+    // a locked bus is locked as a whole
+    set_block_lock(&mut c, w, "Linie5", "1", true);
+    let tours = day(&c, &l);
+    assert_eq!(st::cut(&mut c, w, &tours, at(&tours, "1"), 6), Err(st::LOCKED));
+}
