@@ -19,6 +19,8 @@ struct Game {
     trips: Vec<io::Trip>,
     /// The bus's speed, km/h.
     speed: f32,
+    /// What the plugin asked of the IBIS: `auto on`, `auto off`, `typed`.
+    ibis: Vec<String>,
 }
 
 impl PluginIo for Game {
@@ -66,6 +68,14 @@ impl PluginIo for Game {
             return self.trips.clone();
         }
         ["Zoo - Hbf", "Hbf - Zoo"].iter().map(|n| io::Trip { name: n.to_string(), line: "10".into(), ..io::Trip::default() }).collect()
+    }
+    fn duty_set_auto_ibis(&mut self, on: bool) -> bool {
+        self.ibis.push(if on { "auto on" } else { "auto off" }.into());
+        true
+    }
+    fn duty_type_ibis(&mut self) -> bool {
+        self.ibis.push("typed".into());
+        true
     }
     fn duty_start(&mut self, line: &str, tour: &str, trip: usize, stop: usize) -> Result<(), String> {
         self.started.push((line.into(), tour.into(), trip, stop));
@@ -364,8 +374,9 @@ fn the_driver_signs_on_accepts_the_duty_and_has_the_board() {
     let mut game = Game { trips: vec![three_stops()], ..Game::default() };
     ps.frame(&mut game);
     ps.frame(&mut game);
-    // not signed on: the duty waits, though it was to start by itself
+    // not signed on: the duty waits, though it was to start by itself, and the IBIS with it
     assert!(game.started.is_empty());
+    assert_eq!(game.ibis.last().map(String::as_str), Some("auto off"));
     assert!(panel_text(&ps, "omsihub").unwrap().contains("Not signed on"));
     // a wrong code, then the right one
     for events in [vec![ui("ui_change", &["omsihub", "signon_number", "482913"]), ui("ui_change", &["omsihub", "signon_code", "1111"]), ui("ui_click", &["omsihub", "signon"])], vec![ui("ui_change", &["omsihub", "signon_code", "5821"]), ui("ui_click", &["omsihub", "signon"])]] {
@@ -380,6 +391,9 @@ fn the_driver_signs_on_accepts_the_duty_and_has_the_board() {
     ps.frame(&mut game);
     game.events.clear();
     assert_eq!(game.started.len(), 1);
+    // (the duty's codes into the IBIS as the order is accepted; the game types the next trips)
+    assert!(game.ibis.iter().any(|x| x == "typed"), "{:?}", game.ibis);
+    assert_eq!(game.ibis.last().map(String::as_str), Some("auto on"));
     let trip = three_stops();
     game.duty = Some(io::Duty { line: "10".into(), tour: "2".into(), trip: 0, trips: 1, next: 1, delay: 240.0, current: trip, ..io::Duty::default() });
     ps.frame(&mut game);

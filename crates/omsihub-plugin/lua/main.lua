@@ -10,7 +10,7 @@
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.3.0"
+local VERSION = "1.4.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -21,6 +21,7 @@ local json = require("hubjson")
 local NEEDS = {
   "duty.get", "duty.trips", "files.append", "files.write", "duty.start",
   "ui.set", "ui.toast", "ui.remove", "files.read", "json.decode", "send",
+  "duty.set_auto_ibis", "duty.type_ibis",
 }
 
 local function fn(name)
@@ -198,6 +199,13 @@ local function panel()
   omsi.ui.set(PANEL, { anchor = "right", x = 16, y = 0, width = 300, accent = "#F47F30", draggable = true, children = children })
 end
 
+-- the IBIS: typed by the game as each trip begins, unless Omsi-Hub says the driver types it -
+-- and not before the driver accepted the duty order when signing on
+local function ibis_rule()
+  if not has["duty.set_auto_ibis"] then return end
+  omsi.duty.set_auto_ibis(signon.at_work() and not (assignment and assignment.ibis == false))
+end
+
 local function start_duty()
   if not (assignment and has["duty.start"]) or duty_now() then return end
   local ok, why = omsi.duty.start(assignment.line, assignment.tour, tonumber(assignment.trip) or 1, tonumber(assignment.stop) or 1)
@@ -344,6 +352,7 @@ end
 omsi.on("vehicle", function(name)
   -- (the notices once the player is in the bus and sees them)
   if name and assignment then show_notices(assignment.notices) end
+  if name then ibis_rule() end
   if name and assignment and assignment.auto_start and signon.at_work() and not state.started then
     state.started = true
     start_duty()
@@ -360,7 +369,13 @@ omsi.on("ui_click", function(p, element)
       state.started = true
       start_duty()
     end
-  end) then panel() end
+    -- (the duty's codes go to the IBIS as the order is accepted)
+    ibis_rule()
+    if has["duty.type_ibis"] and assignment.ibis ~= false then omsi.duty.type_ibis() end
+  end) then
+    ibis_rule()
+    panel()
+  end
 end)
 
 omsi.on("ui_change", function(p, element, value)

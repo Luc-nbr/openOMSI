@@ -94,6 +94,9 @@ pub struct Assignment {
     pub personnel: Option<Personnel>,
     /// The duty board on the screen (None: shown).
     pub board: Option<bool>,
+    /// The game types the duty's trips into the IBIS (None: as the game does; false: the
+    /// driver types them). With a sign-on they wait for the duty order in any case.
+    pub ibis: Option<bool>,
     /// The plugin's texts in the player's language: English text -> translation.
     pub texts: BTreeMap<String, String>,
 }

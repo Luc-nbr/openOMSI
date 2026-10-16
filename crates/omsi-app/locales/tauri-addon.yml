@@ -416,3 +416,17 @@ _version: 2
   pl: "Omsi-Hub uruchamia własną kopię gry."
   ru: "Omsi-Hub запускает свою копию игры."
   uk: "Omsi-Hub запускає власну копію гри."
+"The IBIS typed as Omsi-Hub says (after the duty order, or by you)":
+  de: "Das IBIS so eingegeben, wie Omsi-Hub es sagt (nach dem Dienstauftrag oder von dir)"
+  fr: "L'IBIS saisi comme Omsi-Hub l'indique (après l'ordre de service, ou par vous)"
+  nl: "De IBIS ingevuld zoals Omsi-Hub het zegt (na de dienstopdracht, of door jou)"
+  pl: "IBIS wpisywany tak, jak mówi Omsi-Hub (po poleceniu służbowym albo przez ciebie)"
+  ru: "IBIS заполняется так, как говорит Omsi-Hub (после наряда или вами)"
+  uk: "IBIS заповнюється так, як каже Omsi-Hub (після наряду або вами)"
+"The game types the IBIS as each trip begins":
+  de: "Das Spiel gibt das IBIS zu Beginn jeder Fahrt ein"
+  fr: "Le jeu saisit l'IBIS au début de chaque trajet"
+  nl: "Het spel vult de IBIS in bij het begin van elke rit"
+  pl: "Gra wpisuje IBIS na początku każdego kursu"
+  ru: "Игра заполняет IBIS в начале каждого рейса"
+  uk: "Гра заповнює IBIS на початку кожного рейсу"

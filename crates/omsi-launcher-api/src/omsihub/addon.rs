@@ -319,6 +319,7 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
         trip: d.trip.as_deref().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
         personnel,
         board: Some(on("nav_board", true)),
+        ibis: Some(on("ibis_auto", true)),
         ..Assignment::default()
     };
     write_texts(&install::plugin_dir(&dir));
