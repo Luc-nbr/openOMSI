@@ -52,6 +52,12 @@
 .le-settings > .ed-picker { margin: -4px 0 16px; }
 .le-foot { display: flex; flex-direction: column; gap: 8px; }
 .le-foot > .hub-btn { width: 100%; }
+/* a line of the map's under a tendered bus contract, changed: the variation's price (Beta 66) */
+.le-contract { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: var(--hub-r); font-size: 9.6px; line-height: 1.5; color: var(--hub-text-soft); background: var(--hub-field); box-shadow: inset 3px 0 0 var(--hub-accent); }
+.le-contract > b { color: var(--hub-text); font-weight: 800; }
+.le-contract.warn { box-shadow: inset 3px 0 0 var(--hub-warn); }
+.le-contract.danger { box-shadow: inset 3px 0 0 var(--hub-danger); }
+.le-contract.ok { box-shadow: inset 3px 0 0 var(--hub-ok); }
 .le-half { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex: none; }
 .le-half > * { min-width: 0; }
 .le-save-row { display: flex; gap: 12px; align-items: center; }

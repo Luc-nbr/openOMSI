@@ -97,14 +97,30 @@ pub(super) fn view(s: &Session) -> Value {
     let v = &s.v;
     let (Some(_), Some(c)) = (v.company.as_ref(), s.company.as_ref()) else { return Value::Null };
     let eur = crate::words::eur;
+    // (a line of the map's under a tendered contract: its change is a variation of the contract,
+    // priced by its size - `company::variations`; the page words it, its texts are the launcher's)
     let fee_map = v.line().filter(|x| x.is_map_line()).map(|line| {
         let old = v.running.get(&line.id).unwrap_or(line);
-        (own::map_change_fee(c, old, line).unwrap_or(0), c.cash)
+        let ttl = line.map.as_ref().map(|m| m.ttl.as_str()).unwrap_or("");
+        let q = co::variations::edit_quote(c, ttl, old, line);
+        (own::map_change_fee(c, old, line).unwrap_or(0), c.cash, q)
     });
     let figures = v.company.as_ref().and_then(|f| f.cache.clone()).filter(|f| Some(f.key.0) == v.sel);
     let mut out = json!({ "cash": eur(c.cash) });
-    if let Some((fee, cash)) = fee_map {
+    if let Some((route, cash, q)) = fee_map {
+        let varied = q.as_ref().map_or(0, |q| if q.covered { 0 } else { q.price() });
+        let fee = route + varied;
         out["map_fee"] = json!({ "fee": fee, "label": eur(fee), "short": fee > cash, "why": (fee > cash).then(|| omsi_ui::tr("The company has %{cash}: not enough for the change.").replace("%{cash}", &eur(cash))) });
+        if let Some(q) = q {
+            out["variation"] = json!({
+                "class": q.class.label(), "tone": match q.class { co::variations::Class::Minor => "ok", co::variations::Class::Moderate => "warn", co::variations::Class::Major => "danger" },
+                "refused": q.refused, "covered": q.covered, "share": format!("{:+.0}", 100.0 * q.share),
+                "price": eur(q.price()), "fee": eur(q.fee), "penalty": (q.penalty > 0).then(|| eur(q.penalty)),
+                "week_before": eur(q.week_before()), "week_after": eur(q.week_after()), "net": q.kind == co::bus_contracts::Kind::Net,
+                "points": (q.points > 0.0).then(|| format!("{:.0}", q.points)), "reputation": (q.reputation > 0.0).then(|| format!("{:.1}", q.reputation)),
+                "added": q.added, "removed": q.removed, "core": q.core,
+            });
+        }
     }
     if let Some(f) = figures.as_ref() {
         out["estimate"] = estimate(s, f);
