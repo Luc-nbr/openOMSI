@@ -42,6 +42,8 @@ pub mod online;
 pub mod privacy;
 // Omsi-Hub's cloud saves: a company kept in the account's cloud, synced (`cloud.rs`)
 pub mod cloud;
+// On time: punctuality, headway, connections and diversions for the driver (`ontime.rs`)
+pub mod ontime;
 
 use crate::{Answer, Platform};
 use omsi_launcher_lib as core;

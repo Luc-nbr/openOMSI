@@ -100,6 +100,7 @@ pub(crate) struct PeoplePart<'p> {
 pub(crate) struct DutyPart<'p> {
     pub(crate) duty: &'p mut Option<schedule::PlayerDuty>,
     pub(crate) duty_places: &'p mut bool,
+    pub(crate) duty_closed: &'p mut (Vec<String>, String),
     pub(crate) career: &'p mut career::Career,
     pub(crate) journey: &'p mut Option<crate::journey::Journey>,
 }
@@ -171,7 +172,7 @@ impl App {
             settings, exiting, shell, photo, photo_settings, devtools, pipeline, fixed_tick,
         } = self;
         let SessionState {
-            placed, world_day, traffic, schedule, timetable_book, humans, duty, duty_places, rain,
+            placed, world_day, traffic, schedule, timetable_book, humans, duty, duty_places, duty_closed, rain,
             cabin_air, spray, lamps_on, populate_t, humans_populate_t, traffic_heavy_frame,
             first_populate, envir, weather, clock_jump, seat_bus, on_foot, safe_pose, safe_age,
             pending_time, autosave_t, pumping, career, journey, wetness, cloud_drift, weather_blend,
@@ -190,7 +191,7 @@ impl App {
             traffic: TrafficPart { traffic, schedule, timetable_book, populate_t, traffic_heavy_frame, first_populate, pipeline },
             player: PlayerPart { player, placed, seat_bus, safe_pose, safe_age, pumping },
             people: PeoplePart { humans, humans_populate_t, on_foot },
-            duty: DutyPart { duty, duty_places, career, journey },
+            duty: DutyPart { duty, duty_places, duty_closed, career, journey },
             net,
             integrations,
             sound,

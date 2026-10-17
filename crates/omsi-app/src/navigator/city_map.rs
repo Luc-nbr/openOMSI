@@ -883,6 +883,10 @@ impl Navigator {
         }
         for (k, name, r) in stop_labels {
             crate::stop_signs::draw_label(&mut ui, &mut self.atlas, &self.fonts, r, &name, 12.5 * s, signs, k == 0, s);
+            // (closed today: struck through)
+            if f.stops[k].closed.is_some() {
+                super::strike(&mut ui, r.x + 7.5 * s, r.w - 13.0 * s, r, s, crate::nav_duty::NOW);
+            }
         }
         for (k, p) in markers.into_iter().rev() {
             let kind = crate::stop_signs::Kind::ahead(k, n_stops);

@@ -14,11 +14,15 @@
 //! * `data/messages.json`: the driver's inbox of the control room's messages ([`Inbox`]: in the
 //!   player's language, with the buttons' words), read every few seconds like the notices (the
 //!   `messages` feature, `lua/messages.lua`; docs/omsihub/MESSAGES.md).
+//! * `data/ontime.json`: the on-time card's brief - headway, connections, diversions and the
+//!   alerts to show once - written while the game runs (`omsi-launcher-api`'s `omsihub/ontime.rs`).
 //!
 //! The plugin to Omsi-Hub:
 //!
 //! * `data/hello.json`: the handshake ([`Hello`]) - the game's version, its plugin API's ABI
 //!   and which of the functions the add-on uses it has (`crate::compat` negotiates from it);
+//! * `data/live.json`: where the bus is (the trip, its stops, the delay), every few seconds,
+//!   for the on-time card's brief (`lua/ontime.lua`);
 //! * `data/reports.jsonl`: one [`Report`] a line - the duty taken, each trip done with its
 //!   ratings, the duty ended - appended as they happen ([`ReportReader`] reads what is new);
 //! * `data/replies.jsonl`: one [`Reply`] a line - a message delivered, read, accepted or
@@ -105,6 +109,9 @@ pub struct Assignment {
     pub personnel: Option<Personnel>,
     /// The duty board on the screen (None: shown).
     pub board: Option<bool>,
+    /// The on-time card on the screen (`ontime.lua`; None: shown).
+    #[serde(default)]
+    pub ontime: Option<bool>,
     /// The game types the duty's trips into the IBIS (None: as the game does; false: the
     /// driver types them). With a sign-on they wait for the duty order in any case.
     pub ibis: Option<bool>,

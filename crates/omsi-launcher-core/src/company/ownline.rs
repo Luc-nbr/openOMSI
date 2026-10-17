@@ -1043,6 +1043,7 @@ pub fn confirm(c: &mut Company, l: &LineDesign, stem: &str, shape: &Shape) -> Re
         line_type: None,
         fare_cap: false,
         stats: Default::default(),
+        connections: Vec::new(),
     });
     Ok(total)
 }

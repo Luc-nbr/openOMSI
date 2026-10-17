@@ -32,6 +32,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("signon.lua", include_str!("../lua/signon.lua")),
     ("messages.lua", include_str!("../lua/messages.lua")),
     ("duty_strip.lua", include_str!("../lua/duty_strip.lua")),
+    ("ontime.lua", include_str!("../lua/ontime.lua")),
 ];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -178,6 +179,35 @@ pub const TEXTS: &[&str] = &[
     "%{n} reported to the workshop",
     "Note left",
     "The next driver of bus %{bus} sees it",
+    // the on-time card (`lua/ontime.lua`), and the templates of Omsi-Hub's brief it shows
+    "On time",
+    "early",
+    "late",
+    "Counts as a late trip",
+    "Counts late from %{t}",
+    "%{t} left",
+    "Running early: wait at the stop",
+    "Ahead %{bus}: %{gap}",
+    "Behind %{bus}: %{gap}",
+    "every %{m} min",
+    "Hold %{secs} s at the next stop",
+    "You are close behind %{bus}",
+    "Connection at %{stop}: %{what} %{time}",
+    "%{m} min to change",
+    "Tight: keep the doors short",
+    "Missed at this delay",
+    "Connection at %{stop}: wait max %{m} min",
+    "Hold until %{time}",
+    "Too late to wait for: leave on time",
+    "No wait needed",
+    "Diversion ahead: %{stop} closed",
+    "Via %{via}",
+    "Closed today: %{stops}",
+    "Hold %{secs} s at %{stop}: the bus ahead is close",
+    "Close behind %{bus}: no time to hold",
+    "Roadworks on the line today: expect delays",
+    "Diversion on the line today: expect delays",
+    "Diversion on the line today",
 ];
 
 /// The sounds of the control room's messages (`lua/messages.lua`), made here as small WAV files:

@@ -26,6 +26,7 @@ local NEEDS = {
   "ui.set", "ui.toast", "ui.remove", "files.read", "json.decode", "send",
   "duty.set_auto_ibis", "duty.type_ibis", "bus.set_display_font", "game.action",
   "duty.skip_to", "duty.finish", "duty.trip_stops", "audio.play",
+  "duty.set_closed_stops",
 }
 
 local function fn(name)
@@ -173,6 +174,9 @@ local signon = require("signon")
 local board = require("board")
 board.setup(tr)
 if company_duty() then signon.setup(tr, assignment) end
+-- (the on-time card: punctuality, headway, connections, diversions - `ontime.lua`, its own)
+local ontime = require("ontime")
+ontime.setup(tr, assignment, has)
 
 -- the duty strip, the handover notes and the walk-around of a company's duty (duty_strip.lua):
 -- its notes and defects go to Omsi-Hub as reports, its notices as cards
@@ -413,6 +417,7 @@ omsi.on("ui_click", function(p, element)
   if messages.click(p, element) then return end
   if strip.click(p, element) then return end
   if p == PANEL and element == "signoff" and signon.signed() then strip.sign_off() end
+  if ontime.click(p, element) then return end
   if p == PANEL and element == "start" then start_duty() end
   -- (signed on and the duty accepted: taken now where it was to start by itself)
   if p == PANEL and signon.click(element, function()
@@ -445,6 +450,7 @@ end)
 omsi.on("stop", function()
   if has["ui.remove"] then omsi.ui.remove(PANEL) end
   strip.stop()
+  ontime.stop()
 end)
 
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
@@ -452,6 +458,7 @@ omsi.every(1, function()
   board.update((not assignment or assignment.board ~= false) and signon.at_work())
   messages.tick()
   strip.update(company_duty() and signon.at_work())
+  if signon.at_work() then ontime.tick(1) end
 end)
 
 omsi.every(2, function()

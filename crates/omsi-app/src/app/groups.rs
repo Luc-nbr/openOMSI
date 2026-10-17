@@ -462,6 +462,9 @@ pub(crate) struct SessionState {
     pub(crate) duty: Option<schedule::PlayerDuty>,
     /// The duty was told the places of the stops beyond the loaded tiles.
     pub(crate) duty_places: bool,
+    /// The stops closed today on the duty's route and the way round, as a plugin said them
+    /// (`duty.set_closed_stops`: Omsi-Hub's diversions): the navigator strikes them through.
+    pub(crate) duty_closed: (Vec<String>, String),
     pub(crate) rain: rain::Rain,
     /// The player's bus's cabin air and the condensation on its glass.
     pub(crate) cabin_air: crate::condensation::CabinAir,

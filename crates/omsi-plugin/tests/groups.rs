@@ -84,6 +84,7 @@ fn duty_and_timetable() {
         assert(omsi.duty.skip_stop() == "Markt" and omsi.duty.next_stop().name == "Rathaus")
         assert(omsi.duty.skip_to(1) and not omsi.duty.skip_to(10))
         assert(omsi.duty.set_auto_ibis(false) and omsi.duty.type_ibis())
+        assert(omsi.duty.set_closed_stops({ "Rathaus", " ", "Markt" }, "Bahnhofstr."))
         assert(omsi.duty.start("136", "3", 2, 1))
         local ok, why = omsi.duty.start("999", "1"); assert(not ok and why:find("999"))
         local l = omsi.timetable.lines()[1]; assert(l.name == "136" and l.tours[1].today)
@@ -98,6 +99,7 @@ fn duty_and_timetable() {
     assert_eq!(out, ["ok"]);
     assert!(g.log.borrow().iter().any(|l| l == "duty 136/3 1 0"));
     assert!(g.log.borrow().iter().any(|l| l == "auto ibis false") && g.log.borrow().iter().any(|l| l == "type ibis"));
+    assert!(g.log.borrow().iter().any(|l| l == "closed Rathaus|Markt via Bahnhofstr."));
 }
 
 #[test]

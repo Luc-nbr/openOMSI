@@ -75,6 +75,11 @@ pub static FNS: &[ApiFn] = &[
         c.io().duty_set_auto_ibis(on)
     }),
     def!("duty.type_ibis", "duty", [], "boolean", "Types the trip under way into the bus's IBIS now (line, route and destination), as the game does when a trip begins; `true` when there was a duty and a bus.", NEW, VehicleWrite, false, |c, a| c.io().duty_type_ibis()),
+    def!("duty.set_closed_stops", "duty", [p("stops", "table"), o("via", "string")], "boolean", "The stops closed today on the duty's route (a list of names) - a diversion, roadworks - and the way round (`via`): the navigator strikes them through and says the way round; an empty list takes them away. `true` when the game shows them.", NEW, Ui, false, |c, a| {
+        let stops: Vec<String> = a.get(0).items().iter().filter_map(|v| v.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        let via = a.opt_str(1)?.unwrap_or_default();
+        Ok::<_, ApiError>(c.io().duty_set_closed_stops(stops, via.trim()))
+    }),
     def!("timetable.lines", "duty", [], "list of tables", "The map's lines: `{name, user_allowed, tours}`, each tour `{number, today, trips}` (`today`: it runs on the game's date).", NEW, None, false, |c, a| {
         Value::List(c.io().timetable_lines().into_iter().map(|l| rec(vec![("name", l.name.into()), ("user_allowed", l.user_allowed.into()), ("tours", Value::List(l.tours.into_iter().map(|t| rec(vec![("number", t.number.into()), ("today", t.today.into()), ("trips", t.trips.into())])).collect()))])).collect())
     }),

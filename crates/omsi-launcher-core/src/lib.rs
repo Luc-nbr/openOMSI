@@ -3034,6 +3034,9 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     // the player dragged them (`nav_rect`; empty: its corner and its own size)
     v["nav_board"] = json!(true);
     v["nav_rect"] = json!("");
+    // the bus company's on-time card in the game (punctuality, headway, connections, diversions:
+    // the plugin's `ontime.lua`)
+    v["nav_ontime"] = json!(true);
     // the bus company's look and feel (its Settings, Appearance): its pages round a sidebar or
     // a command palette; the sidebar open, as a rail of icons or slid away (Ctrl+B); the pages
     // pinned at its top (their numbers, `company::TABS`)
@@ -3096,7 +3099,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             x if HEAD_TRACKING_VALUES.contains(&x) => v[&k] = json!(head_tracking_value(x, val.parse::<f64>().ok())),
             "tobii_edges" => v[&k] = json!(b(val)),
             "accent" => v[&k] = json!(accent_text(val)),
-            "nav_signon" | "nav_board" => v[&k] = json!(b(val)),
+            "nav_signon" | "nav_board" | "nav_ontime" => v[&k] = json!(b(val)),
             "nav_rect" => v[&k] = json!(nav_rect(val)),
             "company_layout" => v[&k] = json!(company_layout(val)),
             "company_sidebar" => v[&k] = json!(company_sidebar(val)),
@@ -3601,6 +3604,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("accent={}\n", accent_text(v.get("accent").and_then(|x| x.as_str()).unwrap_or(ACCENT_DEFAULT))));
     text.push_str(&format!("nav_signon={}\n", b("nav_signon", false)));
     text.push_str(&format!("nav_board={}\nnav_rect={}\n", b("nav_board", true), nav_rect(v.get("nav_rect").and_then(|x| x.as_str()).unwrap_or(""))));
+    text.push_str(&format!("nav_ontime={}\n", b("nav_ontime", true)));
     let st = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     text.push_str(&format!("company_layout={}\ncompany_sidebar={}\ncompany_pins={}\n", company_layout(&st("company_layout")), company_sidebar(&st("company_sidebar")), company_pins(&st("company_pins"))));
     text.push_str(&format!("photo_mode={}\n", if v.get("photo_mode").and_then(|x| x.as_str()) == Some("advanced") { "advanced" } else { "simple" }));

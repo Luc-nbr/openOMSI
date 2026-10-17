@@ -68,6 +68,7 @@ function Tours({ t, name }) {
   return html`<div style="display:flex;flex-direction:column;min-height:0;gap:12px">
     <${Card} c=${t.card} name=${name} />
     <${Income} i=${t.income} name=${name} />
+    <${Connections} c=${t.connections} name=${name} />
     <section class="co-section" style="flex:1;min-height:80px">
       <div class="co-caps" style="display:flex;align-items:center;margin:-6px 0 8px">
         <span class="grow">${t.title}</span>
@@ -117,6 +118,47 @@ function Income({ i, name }) {
     </div>
     ${i.money.length > 0 &&
     html`<div class="money"><span class="co-caps">${i.money_caps}</span>${i.money.map(([l, t, tone]) => html`<span class="cut">${l} <b class=${'t-' + tone}>${t}</b></span>`)}</div>`}
+  </section>`;
+}
+
+/** A line's protected connections (`lines::connections_card`): a small table - the stop, what
+ * connects, its time, how long the bus waits for it at the most, or whether the passengers change
+ * to it - edited here and saved at once. */
+function Connections({ c, name }) {
+  const [edit, setEdit] = useState({ for: null, rows: [] });
+  if (!c) return null;
+  const rows = edit.for === name ? edit.rows : c.rows;
+  const dirty = edit.for === name && JSON.stringify(edit.rows) !== JSON.stringify(c.rows);
+  const set = (k, patch) => setEdit({ for: name, rows: rows.map((r, j) => (j === k ? { ...r, ...patch } : r)) });
+  const add = () => setEdit({ for: name, rows: [...rows, { stop: c.stops[0] || '', what: '', time: '07:00', max_hold: 2, onward: false }] });
+  const drop = (k) => setEdit({ for: name, rows: rows.filter((_, j) => j !== k) });
+  const save = async () => {
+    await act('line_connections', { name, list: rows });
+    setEdit({ for: null, rows: [] });
+  };
+  const list = 'co-stops-' + name.replace(/[^a-z0-9]/gi, '_');
+  const grid = 'display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.4fr) 78px 70px 92px 32px;gap:6px;align-items:center';
+  return html`<section class="co-section">
+    <div class="co-caps" style="display:flex;align-items:center;margin:-6px 0 8px">
+      <span class="grow">${c.title}</span>
+      <${Btn} kind="ghost" icon="add" label=${c.add} style="height:32px" onClick=${add} />
+      ${dirty && html`<${Btn} kind="primary" label=${c.save} style="height:32px" onClick=${save} />`}
+    </div>
+    <p class="co-note" style="margin-bottom:8px">${c.note}</p>
+    <datalist id=${list}>${c.stops.map((x) => html`<option value=${x} />`)}</datalist>
+    ${rows.length === 0
+      ? html`<p class="co-note t-dim">${c.none}</p>`
+      : html`<div style=${grid + ';margin-bottom:4px'} class="co-caps">${c.cols.map((x) => html`<span class="cut" title=${x}>${x}</span>`)}<span></span></div>
+        ${rows.map(
+          (r, k) => html`<div style=${grid + ';margin-bottom:4px'}>
+            <input class="co-field" style="height:30px" list=${list} value=${r.stop} onInput=${(e) => set(k, { stop: e.currentTarget.value })} />
+            <input class="co-field" style="height:30px" value=${r.what} placeholder=${c.what_hint} onInput=${(e) => set(k, { what: e.currentTarget.value })} />
+            <input class="co-field" style="height:30px" type="time" value=${r.time} onInput=${(e) => set(k, { time: e.currentTarget.value })} />
+            <input class="co-field" style="height:30px" type="number" min="0" max="60" value=${r.max_hold} disabled=${r.onward} onInput=${(e) => set(k, { max_hold: Number(e.currentTarget.value) || 0 })} />
+            <input type="checkbox" checked=${r.onward} onChange=${(e) => set(k, { onward: e.currentTarget.checked })} />
+            <${IconBtn} icon="close" title=${c.remove} size=${16} style="width:30px;height:30px" onClick=${() => drop(k)} />
+          </div>`,
+        )}`}
   </section>`;
 }
 

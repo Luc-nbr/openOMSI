@@ -149,10 +149,10 @@ fn act_need(act: &str, what: &str) -> Need {
         // the staff
         "hire" | "raise" | "advertise" | "keep" | "grant_raise" | "refuse_raise" | "course_lock" | "book_course" | "train" | "set_hours" | "staff_rule" | "auto" | "follow" | "holiday_answer" | "holiday_limit" | "agency_book" | "agency_cancel" | "staff_minimum" => STAFF,
         // the lines, their fares
-        "line_title" | "line_type" | "line_hof" | "line_colour" | "add_line" | "remove_line" => LINES,
+        "line_title" | "line_type" | "line_hof" | "line_colour" | "line_connections" | "add_line" | "remove_line" => LINES,
         "set_fare" | "set_cap" => Any(&[Perm::Lines, Perm::Spend]),
         "inbox_read" | "inbox_unread" | "inbox_delete" | "inbox_mark_all" | "inbox_delete_read" => SETTINGS,
-        "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" => SERVICE,
+        "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" | "ops_diversion_add" | "ops_diversion_remove" => SERVICE,
         // (the control room's messages to the drivers: who runs the day's service sends them,
         // by his name)
         "ops_msg" | "ops_msg_ack" => SERVICE,

@@ -54,6 +54,7 @@ pub static FEATURES: &[Feature] = &[
     Feature { id: "messages", label: "Messages from the control room, and your replies", needs: &["files.read", "json.decode", "files.append", "ui.set"], essential: false, fallback: "Messages wait on the Operations page and the phone" },
     Feature { id: "message_actions", label: "Instructions carried out in the game (short-turn, out of service, relief)", needs: &["duty.skip_to", "duty.finish", "duty.trip_stops"], essential: false, fallback: "You carry instructions out yourself" },
     Feature { id: "message_sound", label: "A sound for each message", needs: &["audio.play"], essential: false, fallback: "Messages come without a sound" },
+    Feature { id: "closed_stops", label: "Closed stops struck through on the navigator", needs: &["duty.set_closed_stops"], essential: false, fallback: "The on-time card lists the stops closed" },
 ];
 
 /// The notes [`Compat`] gives, for the player (English: the launcher translates them).

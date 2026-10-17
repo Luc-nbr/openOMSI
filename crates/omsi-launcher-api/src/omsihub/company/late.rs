@@ -74,6 +74,7 @@ pub fn cause_text(c: &Company, x: &Cause) -> String {
         Cause::Driver { driver, .. } => trf("%{name} drove %{m} min slower than the timetable", &[("name", &name_of(c, *driver)), ("m", &m)]),
         Cause::Bus { bus, .. } => trf("bus %{bus} in poor condition: %{m} min", &[("bus", &bus_no(c, *bus)), ("m", &m)]),
         Cause::Event { .. } => trf("an event on the line (roadworks, a diversion, the weather): %{m} min", &[("m", &m)]),
+        Cause::Hold { stop, what, .. } => trf("held %{m} min at %{stop} for a connection (%{what})", &[("m", &m), ("stop", stop.trim()), ("what", what.trim())]),
         Cause::Chance { .. } => trf("delays on the way: %{m} min", &[("m", &m)]),
     }
 }
@@ -90,6 +91,7 @@ pub fn cause_kind(key: &str) -> String {
         "driver" => "Slow driving",
         "bus" => "Buses in poor condition",
         "event" => "Events on the line",
+        "hold" => "Held for connections",
         _ => "Delays on the way",
     })
 }

@@ -889,7 +889,7 @@ fn preview_pin_pictures() {
     d.streets = Some(std::sync::Arc::new(build_streets(&net, &signs)));
     let route: Vec<usize> = (0..3).map(|j| find(&net, (1.5, j as f64 * 200.0), (1.5, (j + 1) as f64 * 200.0))).collect();
     d.set_route("0/trip", route, true, d.global_version + (1 << 40));
-    let stop = |name: &str, y: f64, min: f64| NavStop { object_id: 0, position: DVec3::new(4.0, y, 0.0), name: name.into(), arrival: 11.0 * 3600.0 + min * 60.0 };
+    let stop = |name: &str, y: f64, min: f64| NavStop { object_id: 0, position: DVec3::new(4.0, y, 0.0), name: name.into(), arrival: 11.0 * 3600.0 + min * 60.0, closed: None };
     let f = NavFrame { line: Some("35".into()), terminus: Some("Diakonissenkrankenhaus".into()), stops: vec![stop("Kirchweg", 300.0, 32.0), stop("Rathaus", 450.0, 35.0), stop("Schule", 590.0, 38.0)], delay: Some(40.0), time: 11.0 * 3600.0 + 30.0 * 60.0, ..at((1.5, 60.0), 0.0) };
     d.follow(&f);
     d.pins.ops = vec![Op::Add(DVec2::new(201.5, 300.0)), Op::Add(DVec2::new(398.5, 450.0))];
@@ -974,7 +974,7 @@ fn preview_panel_shapes() {
     n.streets = Some(std::sync::Arc::new(build_streets(&net, &signs)));
     let route: Vec<usize> = (0..3).map(|j| find(&net, (1.5, j as f64 * 200.0), (1.5, (j + 1) as f64 * 200.0))).collect();
     n.set_route("0/trip", route, true, n.global_version + (1 << 40));
-    let stop = |name: &str, y: f64, min: f64| NavStop { object_id: 0, position: DVec3::new(4.0, y, 0.0), name: name.into(), arrival: 7.0 * 3600.0 + min * 60.0 };
+    let stop = |name: &str, y: f64, min: f64| NavStop { object_id: 0, position: DVec3::new(4.0, y, 0.0), name: name.into(), arrival: 7.0 * 3600.0 + min * 60.0, closed: None };
     let f = NavFrame {
         line: Some("314".into()),
         terminus: Some("Großweier".into()),

@@ -327,6 +327,10 @@ impl PluginIo for Game {
         self.did("type ibis");
         self.duty.is_some()
     }
+    fn duty_set_closed_stops(&mut self, stops: Vec<String>, via: &str) -> bool {
+        self.did(format!("closed {} via {via}", stops.join("|")));
+        true
+    }
     fn timetable_lines(&self) -> Vec<Line> {
         vec![Line { name: "136".into(), user_allowed: true, tours: vec![Tour { number: "3".into(), today: true, trips: 4 }] }]
     }

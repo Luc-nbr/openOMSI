@@ -753,6 +753,11 @@ impl PluginIo for Io<'_> {
     fn duty_type_ibis(&mut self) -> bool {
         self.app_mut().is_some_and(pduty::type_ibis)
     }
+    fn duty_set_closed_stops(&mut self, stops: Vec<String>, via: &str) -> bool {
+        let Some(app) = self.app_mut() else { return false };
+        app.session.duty_closed = (stops, via.to_string());
+        true
+    }
     fn timetable_lines(&self) -> Vec<op::Line> {
         self.app().map(pduty::lines).unwrap_or_default()
     }

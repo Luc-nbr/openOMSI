@@ -199,6 +199,14 @@ fn game_plugins_dir(c: &Choice) -> Result<PathBuf, String> {
     }
 }
 
+/// The plugin's folder in the game the drives go to, as it is (nothing is installed here): where
+/// its live files are (`ontime`).
+pub fn drive_plugin_dir() -> Option<PathBuf> {
+    let c = load();
+    let dir = if in_addon_mode(&c) { plugins_dir().ok() } else { own_plugins_dir() }?;
+    Some(install::plugin_dir(&dir))
+}
+
 /// Whether the drives go to the chosen openOMSI now.
 fn in_addon_mode(c: &Choice) -> bool {
     c.use_folder && core::chosen_game().is_some()
@@ -331,6 +339,7 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>, crew: Option<b
         trip: d.trip.as_deref().and_then(|t| t.trim().parse().ok()).unwrap_or(0),
         personnel,
         board: Some(on("nav_board", true)),
+        ontime: Some(on("nav_ontime", true)),
         ibis: Some(on("ibis_auto", true)),
         bus: d.bus.clone(),
         display_font: d.display_font.clone().unwrap_or_default(),

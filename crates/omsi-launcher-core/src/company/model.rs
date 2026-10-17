@@ -741,6 +741,9 @@ pub struct CompanyLine {
     /// (`income::LineStats`).
     #[serde(default)]
     pub stats: super::income::LineStats,
+    /// Its protected connections (the Lines page's table: `ontime::Connection`).
+    #[serde(default)]
+    pub connections: Vec<super::ontime::Connection>,
 }
 
 impl CompanyLine {
@@ -988,6 +991,9 @@ pub struct Company {
     /// sick calls (`crew`; a file of before: none).
     #[serde(default)]
     pub crew: super::crew::Crew,
+    /// The diversions of its days (the Operations page: `ontime::Diversion`).
+    #[serde(default)]
+    pub ontime: super::ontime::OnTime,
 }
 
 fn one() -> f64 {

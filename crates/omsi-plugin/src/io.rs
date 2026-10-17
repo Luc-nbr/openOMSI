@@ -326,6 +326,12 @@ pub trait PluginIo {
     fn duty_type_ibis(&mut self) -> bool {
         false
     }
+    /// The stops closed today on the duty's route (a diversion) and the way round: the
+    /// navigator strikes them through and says the way round (none: nothing closed). Whether
+    /// the game shows them.
+    fn duty_set_closed_stops(&mut self, _stops: Vec<String>, _via: &str) -> bool {
+        false
+    }
     fn timetable_lines(&self) -> Vec<Line> {
         Vec::new()
     }

@@ -151,6 +151,7 @@ pub fn view(s: &mut Session) -> Value {
             "zoom_in": tr("Zoom in"), "zoom_out": tr("Zoom out"), "fit": tr("Show the whole network") },
         "advice": tr("Advice against late running"),
     });
+    out["diversions"] = diversions_json(s, &c);
     let dp = match super::plan_of(s, &c.date) {
         None => {
             out["reading"] = json!(tr("Reading the timetable…"));
@@ -298,6 +299,48 @@ pub fn view(s: &mut Session) -> Value {
     out["log_caps"] = json!({ "title": tr("Messages"), "empty": tr("No messages yet: the Message button of a row writes to its driver."), "all": tr("Message every driver"),
         "cols": [tr("Time"), tr("From"), tr("To"), tr("Message"), tr("State")], "all_to": { "kind": "all", "label": tr("Every driver") } });
     out
+}
+
+/// The diversions and roadworks of the company's days (`co::ontime`): its own, entered here -
+/// the stops closed and the way round, which the driver sees struck through on the navigator and
+/// is told of before them -, and the inbox's roadworks and diversions running today.
+fn diversions_json(s: &Session, c: &Company) -> Value {
+    let named = |names: &[String]| -> String {
+        if names.is_empty() {
+            return tr("All lines");
+        }
+        names.iter().map(|n| c.lines.iter().find(|l| l.name == *n).map_or(n.clone(), |l| l.number.clone())).collect::<Vec<_>>().join(", ")
+    };
+    let mut list: Vec<&co::ontime::Diversion> = c.ontime.diversions.iter().filter(|d| d.last() >= c.date.as_str()).collect();
+    list.sort_by(|a, b| a.from.cmp(&b.from));
+    let rows: Vec<Value> = list
+        .iter()
+        .map(|d| {
+            let when = if d.last() == d.from { day_label(&d.from) } else { format!("{} – {}", day_label(&d.from), day_label(d.last())) };
+            json!({ "id": d.id, "when": when, "lines": named(&d.lines), "closed": d.closed.join(", "), "via": d.via, "note": d.note, "today": d.on(&c.date) })
+        })
+        .collect();
+    let events: Vec<String> = co::inbox::running(c, &c.date)
+        .filter(|e| e.key == "roadworks" || e.key == "diversion")
+        .map(|e| trf(if e.key == "roadworks" { "Roadworks on line %{n}" } else { "Diversion on line %{n}" }, &[("n", e.line.as_deref().unwrap_or(""))]))
+        .collect();
+    let mut stops: Vec<String> = Vec::new();
+    for l in &c.lines {
+        for st in super::lines::stops_of(s, &l.name) {
+            if !stops.iter().any(|x| x.eq_ignore_ascii_case(&st)) {
+                stops.push(st);
+            }
+        }
+    }
+    json!({
+        "title": tr("Diversions and roadworks"), "sub": tr("Stops closed and the way round: the drivers see them on the navigator and are told before them."),
+        "rows": rows, "events": events, "none": tr("No diversion planned."),
+        "form": {
+            "from": tr("From"), "until": tr("Until"), "lines": tr("Lines"), "all": tr("All lines"), "closed": tr("Stops closed"), "closed_hint": tr("Stops, separated by commas"),
+            "via": tr("Via"), "via_hint": tr("The streets the buses take instead"), "note": tr("Note"), "add": tr("Add a diversion"), "remove": tr("Remove"), "today": c.date,
+            "options": c.lines.iter().map(|l| json!([l.name, l.number])).collect::<Vec<_>>(), "stops": stops,
+        },
+    })
 }
 
 /// The minutes from which a bus counts as late on the page: the alert's (`notice_minutes`), the
@@ -589,6 +632,16 @@ pub fn act(s: &mut Session, what: &str, args: &Value) -> Option<Result<Value, St
                     Ok(json!({ "error": e }))
                 }
             }
+        }
+        "ops_diversion_add" => {
+            let text = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            let lines: Vec<String> = args.get("lines").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+            let d = co::ontime::Diversion { from: text("from"), until: text("until"), lines, closed: text("closed").split([',', ';', '\n']).map(str::to_string).collect(), via: text("via"), note: text("note"), ..Default::default() };
+            Ok(super::act(s, |c| co::ontime::add_diversion(c, d)).map(|id| json!({ "id": id })).unwrap_or_else(|p| json!({ "popup": p })))
+        }
+        "ops_diversion_remove" => {
+            let id = args.get("id").and_then(Value::as_u64).unwrap_or(0);
+            Ok(super::act(s, |c| if co::ontime::remove_diversion(c, id) { Ok(()) } else { Err("That cannot be done now.") }).map(|_| json!({})).unwrap_or_else(|p| json!({ "popup": p })))
         }
         "ops_apply" | "ops_cover" | "ops_break" => match take(s, what, args) {
             Ok((said, to)) => {
