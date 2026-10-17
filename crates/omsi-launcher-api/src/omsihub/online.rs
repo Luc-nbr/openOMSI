@@ -24,8 +24,9 @@
 //!   number; `ol_oauth_wait {id, agree}` - waits for the browser (a few minutes at most), then signs
 //!   in as `ol_sign_in` does; `ol_oauth_cancel` - the wait given up.
 //!
-//! The privacy statement (docs/omsihub/PRIVACY.md): signing in from the page comes with the
-//! player's tick (`agree`), which is sent as `accept_privacy` once signed in. At every sign-in and
+//! The privacy statement (docs/omsihub/PRIVACY.md): the page asks it before "Create an account"
+//! and before Google (`agree`: accepted there), which is sent as `accept_privacy` once signed in;
+//! the email sign-in sends no `agree`, and its account is asked afterwards. At every sign-in and
 //! every restored session `my_privacy` is asked; below the current version the state says
 //! `privacy.needed`, the page asks (agree, or sign out), and the account's features - the
 //! heartbeat, the friends, the invites, the profile, the cloud saves - do nothing meanwhile (the
@@ -429,14 +430,14 @@ fn state() -> Value {
 
 // --- the account ------------------------------------------------------------------------------
 
-/// The player's tick under the sign-in: "I have read and agree to the privacy statement".
+/// The privacy statement accepted on the page just before (Google's sign-in asks it first).
 fn agree(args: &Value) -> bool {
     args.get("agree").and_then(Value::as_bool).unwrap_or(false)
 }
 
-/// Signed in (`agree`: with the player's tick): `my_privacy` asked, and `accept_privacy` sent when
-/// it is below the current version and the player agreed. Then the account, or, not agreed, the
-/// page asks for the agreement first and the account waits.
+/// Signed in (`agree`: the statement accepted just before): `my_privacy` asked, and
+/// `accept_privacy` sent when it is below the current version and the player agreed. Then the
+/// account, or, not agreed, the page asks for the agreement first and the account waits.
 fn after_sign_in(agree: bool) -> Value {
     set_local(false);
     {
@@ -583,7 +584,7 @@ fn oauth_texts() -> Texts {
 /// The sign-in started: the listener, and the address for the page to open (an earlier one still
 /// waiting is given up).
 fn oauth_start(args: &Value) -> Value {
-    // (as with a password: only with the player's tick under the privacy statement)
+    // (only after the privacy statement's question, accepted)
     if !agree(args) {
         return fail(Error::Code("privacy"));
     }
@@ -708,9 +709,9 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
             state()
         }
         "ol_verify" => verify(args),
-        "ol_resend" => answer(with(|c| c.send_verification(str_arg(args, "email"))).map(|_| done(&tr("A new code is on its way.")))),
+        "ol_resend" => answer(with(|c| c.send_verification(str_arg(args, "email"))).map(|_| done(&tr("A new email is on its way.")))),
         "ol_sign_in" => sign_in(args),
-        "ol_forgot" => answer(with(|c| c.request_reset(str_arg(args, "email"))).map(|_| done(&tr("If an account has this address, a code is on its way to it.")))),
+        "ol_forgot" => answer(with(|c| c.request_reset(str_arg(args, "email"))).map(|_| done(&tr("If an account has this address, an email is on its way to it.")))),
         "ol_reset" => reset(args),
         "ol_sign_out" => sign_out(),
         "ol_oauth" => oauth_start(args),
@@ -803,8 +804,8 @@ mod tests {
         assert!(missing.is_empty(), "{} missing (crates/omsi-app/locales/online.yml):\n{}", missing.len(), missing.join("\n"));
     }
 
-    /// Google: only with the tick, the address for the browser answered, and a cancel ends the
-    /// wait at once.
+    /// Google: only with the privacy statement accepted, the address for the browser answered, and
+    /// a cancel ends the wait at once.
     #[test]
     fn a_google_sign_in_starts_waits_and_cancels() {
         let v = call("ol_oauth", &json!({ "lang": "de" })).unwrap().unwrap();

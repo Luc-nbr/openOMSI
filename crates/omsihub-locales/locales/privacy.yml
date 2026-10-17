@@ -1,6 +1,6 @@
 _version: 2
 # Beta 66: the Privacy Statement (docs/omsihub/PRIVACY.md, which stays English: the binding text) -
-# its dialog and links, the confirmation before an account is created or signed in to, the request
+# its dialog and links, the question before an account is created or Google signs in, the request
 # to a signed-in player who has not accepted its current version, the "Delete account" button
 # (launcher/ui/js/omsihub/privacy.js, online.js, cloud.js, settings-extra.js;
 # crates/omsi-launcher-api/src/omsihub/online.rs; the code `privacy` of crates/omsihub-online).
@@ -33,20 +33,6 @@ _version: 2
   pl: "Zapoznałem(-am) się z oświadczeniem o ochronie prywatności i wyrażam zgodę na przetwarzanie moich danych osobowych w opisany w nim sposób."
   ru: "Я ознакомился(-ась) с заявлением о конфиденциальности и даю согласие на обработку моих персональных данных в описанном в нём порядке."
   uk: "Я ознайомився(-лася) із заявою про конфіденційність і даю згоду на обробку моїх персональних даних в описаний у ній спосіб."
-"Read the Privacy Statement":
-  de: "Datenschutzerklärung lesen"
-  fr: "Lire la déclaration de confidentialité"
-  nl: "Privacyverklaring lezen"
-  pl: "Przeczytaj oświadczenie o ochronie prywatności"
-  ru: "Прочитать заявление о конфиденциальности"
-  uk: "Прочитати заяву про конфіденційність"
-"Please confirm above that you accept the Privacy Statement.":
-  de: "Bitte bestätigen Sie oben, dass Sie die Datenschutzerklärung akzeptieren."
-  fr: "Veuillez confirmer ci-dessus que vous acceptez la déclaration de confidentialité."
-  nl: "Bevestigt u hierboven dat u de privacyverklaring aanvaardt."
-  pl: "Prosimy potwierdzić powyżej akceptację oświadczenia o ochronie prywatności."
-  ru: "Пожалуйста, подтвердите выше, что Вы принимаете заявление о конфиденциальности."
-  uk: "Будь ласка, підтвердьте вище, що Ви приймаєте заяву про конфіденційність."
 "The Privacy Statement has been amended (version %{n}). Please review and accept it to continue using your account.":
   de: "Die Datenschutzerklärung wurde geändert (Version %{n}). Bitte lesen und akzeptieren Sie sie, um Ihr Konto weiterhin zu nutzen."
   fr: "La déclaration de confidentialité a été modifiée (version %{n}). Veuillez en prendre connaissance et l'accepter pour continuer à utiliser votre compte."

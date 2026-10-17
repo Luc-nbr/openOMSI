@@ -1,17 +1,18 @@
 // Omsi-Hub online (docs/omsihub/ONLINE.md; the Rust side is `omsihub/online.rs`, its client the
 // crate `omsihub-online`): the bar's Account button with the new requests and invites on it, the
 // panel - signing in and out (an account is made on the website), the email confirmed and the
-// password reset by a code, the profile with the friend code, the account deleted; the friends with their online state, the
-// requests, the invites to a company session - and the invites' notices over every page. An
-// account is optional: "Play without an account" is always there, and offline the panel says so
-// quietly. The email address and the password go to Rust and are kept nowhere on the page.
-// The privacy statement (`privacy.js`): ticked before an account is made or signed in to, and
-// asked of a signed-in player who has not agreed to its current version - agree, or sign out and
-// play on locally -, the account's features waiting meanwhile. Playing without an account asks
-// nothing.
+// password reset by a code (or the mail's link), the profile with the friend code, the account
+// deleted; the friends with their online state, the requests, the invites to a company session -
+// and the invites' notices over every page. An account is optional: "Play without an account" is
+// always there, and offline the panel says so quietly. The email address and the password go to
+// Rust and are kept nowhere but in the form, until signed in.
+// The privacy statement (`privacy.js`): it pops up before "Create an account" opens the website
+// and before Google signs in (accepted, or nothing happens), and is asked of a signed-in player
+// who has not agreed to its current version - agree, or sign out and play on locally -, the
+// account's features waiting meanwhile. Playing without an account asks nothing.
 // Google signs in through the system's browser (`ol_oauth`: Rust's listener on 127.0.0.1 takes the
-// answer back), with the same tick; the panel waits meanwhile, and the player may cancel. Such an
-// account has no password: deleting it asks for a tick instead.
+// answer back); the panel waits meanwhile, and the player may cancel. Such an account has no
+// password: deleting it asks for a tick instead.
 
 import { html, useEffect, useState } from '../../vendor/preact-htm.js';
 import { call } from '../api.js';
@@ -201,16 +202,24 @@ function GoogleSignIn({ onDone, onError, disabled }) {
 
 // --- the account --------------------------------------------------------------------------------
 
-/** Signed out: sign in, the code, the password forgotten; a new account on the website; and
- * playing without. */
+/** Signed out: sign in, the email's code, the password forgotten; a new account on the website;
+ * and playing without. The address and the password typed at one step stay for the next: the
+ * code's step asks for the code only (Luc, Beta 67), and for the address only when no step before
+ * had it. The mail may carry a link instead of a code (Supabase's own templates until ours are
+ * pasted in, docs/omsihub/ONLINE.md): its link opened, "I have opened the link" signs in with
+ * what was typed. */
 function SignedOut({ v }) {
   const [step, setStep] = useState('sign_in');
   const [f, setF] = useState({ email: '', password: '', code: '' });
+  // (what the step before had: not asked again)
+  const [kept, setKept] = useState({ email: false, password: false });
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const put = (k) => (x) => setF({ ...f, [k]: x });
+  const keep = () => setKept({ email: !!f.email.trim(), password: !!f.password });
   const go = (s) => {
+    keep();
     setStep(s);
     setErr('');
     setInfo('');
@@ -220,9 +229,15 @@ function SignedOut({ v }) {
     setErr('');
     const r = await act(name, args, true);
     setBusy(false);
-    if (r.error) setErr(r.error);
+    // (an address not confirmed yet is the next step, not a failure)
+    if (r.error && r.step === 'verify' && step !== 'verify') setInfo(r.error);
+    else if (r.error) setErr(r.error);
     else setInfo(r.message || '');
-    if (r.step === 'verify' || r.step === 'sign_in') setStep(r.step);
+    if ((r.step === 'verify' || r.step === 'sign_in') && r.step !== step) {
+      keep();
+      setStep(r.step);
+      setF((x) => ({ ...x, code: '' }));
+    }
     if (r.ok && !r.step && (name === 'ol_sign_in' || name === 'ol_verify' || name === 'ol_reset')) {
       if (r.message) toast(r.message, 'ok');
       setF({ email: '', password: '', code: '' });
@@ -239,9 +254,16 @@ function SignedOut({ v }) {
     setInfo(tr('Create your account on the Omsi-Hub website, confirm your email address, then sign in here.'));
   };
   const verify = () => send('ol_verify', { email: f.email, code: f.code, password: f.password, agree: false });
+  // (the mail's link opened instead: signed in with the password typed before, or asked for it)
+  const linked = () => (f.password ? signIn() : go('sign_in'));
   const forgot = async () => {
     const r = await send('ol_forgot', { email: f.email });
-    if (r.ok) setStep('reset');
+    if (r.ok && step === 'forgot') {
+      keep();
+      setStep('reset');
+      // (the password typed at the sign-in is the forgotten one: the new one starts empty)
+      setF((x) => ({ ...x, password: '', code: '' }));
+    }
   };
   const reset = () => send('ol_reset', { email: f.email, code: f.code, password: f.password, agree: false });
   const local = async () => {
@@ -249,25 +271,27 @@ function SignedOut({ v }) {
     closePanel();
   };
   const email = html`<${Field} label=${tr('Email address')} type="email" value=${f.email} onInput=${put('email')} max=${254} auto="email" />`;
+  const to = f.email.trim() || tr('your email address');
   let body;
   if (step === 'verify') {
     body = html`<h3>${tr('Confirm your email address')}</h3>
-      <p class="ol-text">${tr('Enter the code we sent to %{email}.', { email: f.email || tr('your email address') })}</p>
-      ${!f.email && email}
+      <p class="ol-text">${tr('Enter the code from the email we sent to %{email}. If the email has a link instead, open it, then choose "I have opened the link".', { email: to })}</p>
+      ${!kept.email && email}
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" onEnter=${verify} />
-      ${!f.password && html`<${Field} label=${tr('Password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="current-password" />`}
-      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} onClick=${verify} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
+      <div class="ol-row"><${Btn} kind="primary" icon="check" label=${tr('Confirm')} busy=${busy} disabled=${!f.code.trim()} onClick=${verify} /><${Btn} kind="ghost" icon="link" label=${tr('I have opened the link')} disabled=${busy} onClick=${linked} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send the email again')} onClick=${() => send('ol_resend', { email: f.email })} /></div>`;
   } else if (step === 'forgot') {
     body = html`<h3>${tr('Forgot your password?')}</h3>
-      <p class="ol-text">${tr('We send a code to your email address. With it you choose a new password.')}</p>
-      ${email}
-      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Send a code')} busy=${busy} onClick=${forgot} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Back')} onClick=${() => go('sign_in')} /></div>`;
+      ${kept.email
+        ? html`<p class="ol-text">${tr('We send an email to %{email}. With its code you choose a new password here.', { email: to })}</p>
+            <div class="ol-row"><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Use another address')} onClick=${() => setKept({ ...kept, email: false })} /></div>`
+        : html`<p class="ol-text">${tr('We send an email to your email address. With its code you choose a new password here.')}</p>${email}`}
+      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Send the email')} busy=${busy} onClick=${forgot} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Back')} onClick=${() => go('sign_in')} /></div>`;
   } else if (step === 'reset') {
     body = html`<h3>${tr('Choose a new password')}</h3>
-      <p class="ol-text">${tr('Enter the code we sent to %{email}.', { email: f.email })}</p>
+      <p class="ol-text">${tr('Enter the code from the email we sent to %{email}. If the email has a link instead, open it and choose your new password there.', { email: to })}</p>
       <${Field} label=${tr('Code')} value=${f.code} onInput=${put('code')} max=${10} auto="one-time-code" />
       <${Field} label=${tr('New password')} type="password" value=${f.password} onInput=${put('password')} max=${72} auto="new-password" onEnter=${reset} hint=${html`<${Strength} p=${f.password} />`} />
-      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send a new code')} onClick=${forgot} /></div>`;
+      <div class="ol-row"><${Btn} kind="primary" icon="key" label=${tr('Change password')} busy=${busy} onClick=${reset} /><span class="ol-fill"></span><${Btn} kind="ghost" label=${tr('Send the email again')} onClick=${forgot} /></div>`;
   } else {
     body = html`<h3>${tr('Sign in')}</h3>
       ${email}

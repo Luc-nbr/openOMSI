@@ -54,7 +54,7 @@ pub const TEXTS: &[(&str, &str)] = &[
     // (the account's)
     ("invalid_credentials", "The email address or the password is not right."),
     ("wrong_password", "The password is not right."),
-    ("email_not_verified", "Confirm your email address first: enter the code we sent you."),
+    ("email_not_verified", "Confirm your email address first, with the code or the link in the email we sent you."),
     ("email_taken", "There is an account with this email address already. Sign in, or reset its password."),
     ("invalid_email", "That is not an email address."),
     ("password_too_short", "The password is too short: at least 8 characters."),

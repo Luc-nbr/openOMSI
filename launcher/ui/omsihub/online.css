@@ -108,10 +108,6 @@
 .ol-pv-table th { font-size: 8.4px; text-transform: uppercase; color: var(--hub-text-dim); letter-spacing: 0.02em; }
 .ol-pv-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--hub-accent-text); font-size: 9.6px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .ol-pv-link:hover { color: var(--hub-text); }
-.ol-pv-agree { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: var(--hub-r); background: var(--hub-lift); }
-.ol-pv-agree label { display: flex; align-items: flex-start; gap: 8px; font-size: 10px; line-height: 1.4; cursor: pointer; }
-.ol-pv-agree input { flex: none; margin: 1px 0 0; accent-color: var(--hub-accent); }
-.ol-pv-agree .ol-pv-link { align-self: flex-start; margin-left: 21px; }
 
 /* Google (online.js' GoogleSignIn): the button with its mark, the "or" between the ways to sign
    in, the wait while the browser has the sign-in, the tick that deletes an account without a

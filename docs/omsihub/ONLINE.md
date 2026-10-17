@@ -46,6 +46,174 @@ were tried the same day and dropped: Google or email only, on the website and in
 - The Edge Function `steam-auth` that was deployed for Steam is not used. Remove it from the
   project with Luc's OK.
 
+### The emails: a code, the templates, the sender
+
+The app asks for the **code** from an email: confirming the address (`/verify`, `type: email`) and
+resetting the password (`/verify`, `type: recovery`). The step asks for the code only: the address
+and the password typed at the step before are kept in the form (Luc, Beta 67: "bij het code invullen
+enkel nog code staan en niet nog een keer email adres"); only when no step before had the address is
+it asked for.
+
+Supabase's own templates send a **link** instead of a code (`{{ .ConfirmationURL }}`). Until Omsi-Hub's
+templates below are pasted in, the app's texts say both: "Enter the code from the email we sent to
+…. If the email has a link instead, open it, then choose "I have opened the link"", which signs in
+again with the address and the password already typed. For the reset: "open it and choose your new
+password there" (the website takes the link's session, "The website's side").
+
+The templates carry the **code only**, no link: mail scanners (Outlook's Safe Links and the like)
+open every link in a mail before the player does, which would use up the token and make the code
+fail too.
+
+**To set in Supabase (Luc): Authentication > Emails > Templates**
+
+1. **Confirm signup**. Subject: `Your Omsi-Hub confirmation code`. Body (Source):
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Your Omsi-Hub confirmation code</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f5f7;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px; background-color:#ffffff; border-radius:12px; overflow:hidden; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#16181c;">
+          <tr>
+            <td style="background-color:#16181c; padding:20px 32px; font-size:22px; font-weight:700; letter-spacing:0.3px; color:#ffffff;">
+              Omsi<span style="color:#f58620;">-Hub</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 32px 8px 32px;">
+              <h1 style="margin:0 0 16px 0; font-size:20px; font-weight:600; color:#16181c;">Confirm your email address</h1>
+              <p style="margin:0 0 16px 0; font-size:15px; line-height:1.6;">Dear player,</p>
+              <p style="margin:0 0 24px 0; font-size:15px; line-height:1.6;">Thank you for creating an Omsi-Hub account with the email address <strong>{{ .Email }}</strong>. Please enter the following code in Omsi-Hub or on the Omsi-Hub website to confirm your email address:</p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 32px 24px 32px;">
+              <div style="display:inline-block; padding:14px 28px; border-radius:10px; background-color:#fff4ea; border:1px solid #f58620; font-family:Consolas, 'Courier New', monospace; font-size:30px; font-weight:700; letter-spacing:8px; color:#16181c;">{{ .Token }}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px 32px;">
+              <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6; color:#4a4f57;">The code is valid for a limited time and can be used once. If it has expired, you may request a new one in Omsi-Hub.</p>
+              <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6; color:#4a4f57;">If you did not create an Omsi-Hub account, you may disregard this email; no account will be activated without the code.</p>
+              <p style="margin:0; font-size:15px; line-height:1.6;">Kind regards,<br>Omsi-Hub</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px; background-color:#f4f5f7; font-size:12px; line-height:1.5; color:#6b7079;">
+              This email was sent automatically from a no-reply address; replies are not read. Enquiries may be sent to <a href="mailto:info@omsihub.com" style="color:#cb6f1b;">info@omsihub.com</a>. Please refer to the Privacy Statement at <a href="https://omsihub.com" style="color:#cb6f1b;">omsihub.com</a> for how your personal data are processed.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+```
+
+2. **Reset password**. Subject: `Your Omsi-Hub password reset code`. Body (Source):
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Your Omsi-Hub password reset code</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f5f7;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px; background-color:#ffffff; border-radius:12px; overflow:hidden; font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#16181c;">
+          <tr>
+            <td style="background-color:#16181c; padding:20px 32px; font-size:22px; font-weight:700; letter-spacing:0.3px; color:#ffffff;">
+              Omsi<span style="color:#f58620;">-Hub</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 32px 8px 32px;">
+              <h1 style="margin:0 0 16px 0; font-size:20px; font-weight:600; color:#16181c;">Reset your password</h1>
+              <p style="margin:0 0 16px 0; font-size:15px; line-height:1.6;">Dear player,</p>
+              <p style="margin:0 0 24px 0; font-size:15px; line-height:1.6;">A request has been made to reset the password of the Omsi-Hub account with the email address <strong>{{ .Email }}</strong>. Please enter the following code in Omsi-Hub or on the Omsi-Hub website, together with your new password:</p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 32px 24px 32px;">
+              <div style="display:inline-block; padding:14px 28px; border-radius:10px; background-color:#fff4ea; border:1px solid #f58620; font-family:Consolas, 'Courier New', monospace; font-size:30px; font-weight:700; letter-spacing:8px; color:#16181c;">{{ .Token }}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px 32px;">
+              <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6; color:#4a4f57;">The code is valid for a limited time and can be used once. If it has expired, you may request a new one in Omsi-Hub.</p>
+              <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6; color:#4a4f57;">If you did not request a password reset, you may disregard this email; your password remains unchanged. Please do not share this code with anyone: Omsi-Hub will never ask you for it.</p>
+              <p style="margin:0; font-size:15px; line-height:1.6;">Kind regards,<br>Omsi-Hub</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 32px; background-color:#f4f5f7; font-size:12px; line-height:1.5; color:#6b7079;">
+              This email was sent automatically from a no-reply address; replies are not read. Enquiries may be sent to <a href="mailto:info@omsihub.com" style="color:#cb6f1b;">info@omsihub.com</a>. Please refer to the Privacy Statement at <a href="https://omsihub.com" style="color:#cb6f1b;">omsihub.com</a> for how your personal data are processed.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+```
+
+3. Authentication > Sign In / Providers > Email: keep **Confirm email** on; **Email OTP Length**
+   between 6 and 10 (the app takes 6 to 10 digits; 6 is Supabase's default); **Email OTP
+   Expiration** e.g. 3600 seconds (the templates say "a limited time" and name no number, so it
+   may change without touching them).
+4. Check both templates with a test address: the mail shows the code, and the app's code step
+   accepts it.
+
+**The sender `noreply@omsihub.com` (custom SMTP; Luc)**
+
+Supabase's built-in mail service only delivers to the project team's own addresses and a few mails
+an hour: real players need a custom SMTP server. The password of that server is a secret: it goes
+into the Supabase dashboard only, never into this repository or the app.
+
+1. Choose an email service that sends for a domain of one's own over SMTP (e.g. Resend, Postmark,
+   Brevo, Amazon SES, or the mail host of omsihub.com). Prefer one in the EU, or with a data
+   processing agreement: PRIVACY.md names "Omsi-Hub's email service provider" as a processor
+   (section 5); add its name and place there if it should be named.
+2. Add the domain `omsihub.com` at the service and create the sender `noreply@omsihub.com` (sender
+   name `Omsi-Hub`). A mailbox for it is not needed.
+3. At the DNS of `omsihub.com`, add the records the service gives:
+   - **SPF**: one TXT record on `omsihub.com`, e.g. `v=spf1 include:<the service's domain> ~all`.
+     There may be only one SPF record: if one exists (for `info@omsihub.com`'s mail host), add the
+     service's `include:` to it instead of a second record.
+   - **DKIM**: the TXT or CNAME records the service names (e.g. `<selector>._domainkey.omsihub.com`).
+   - **DMARC**: a TXT record on `_dmarc.omsihub.com`, first `v=DMARC1; p=none; rua=mailto:info@omsihub.com`;
+     once the reports show SPF and DKIM passing, `p=quarantine`.
+   - a return-path / bounce subdomain (a CNAME) if the service asks for one.
+   Wait until the service says the domain is verified.
+4. Create SMTP credentials at the service (the user name, and a password or API key that may only
+   send).
+5. Supabase: Authentication > Emails > **SMTP Settings**, "Enable custom SMTP":
+   - Sender email: `noreply@omsihub.com`; Sender name: `Omsi-Hub`;
+   - Host and Port from the service (port `587` with STARTTLS, or `465`); Username and Password
+     from step 4;
+   - Minimum interval per user: 60 seconds is fine (the app's "Send the email again" waits on it).
+   Save.
+6. Authentication > **Rate Limits**: with custom SMTP, raise "Rate limit for sending emails" (30 an
+   hour at first) to what the player numbers need.
+7. Paste the two templates above (if not done yet), then make a test account on the website: the mail
+   comes from `Omsi-Hub <noreply@omsihub.com>`, and the mail's headers (Gmail: "Show original") say
+   `SPF: PASS`, `DKIM: PASS` and `DMARC: PASS`. Look in the spam folder too.
+
 ## Where it runs (Neon, until the app moves)
 
 | What | Value |
@@ -240,8 +408,9 @@ msg}`, or an older `{error, error_description}`) are read for their code only. N
 ### Google in the app
 
 `crates/omsihub-online/src/oauth.rs`, the commands `ol_oauth`, `ol_oauth_wait`, `ol_oauth_cancel`.
-The button "Sign in with Google" (under the email sign-in, after "or") is disabled until the privacy
-tick is checked, as the email sign-in is.
+The button "Sign in with Google" (under the email sign-in, after "or") first pops up the Privacy
+Statement (`askPrivacy` in `privacy.js`: the whole text, the consent sentence, "Cancel" and "Accept
+and continue"); only once it is accepted does the browser open.
 
 1. `ol_oauth {agree}` starts a listener on `127.0.0.1` with a free port chosen by the system
    (`http://127.0.0.1:<port>/callback`), a random `state` (16 bytes) and a PKCE verifier (32 bytes,
@@ -256,8 +425,9 @@ tick is checked, as the email sign-in is.
 3. The browser tab shows a small Omsi-Hub page in the launcher's language, without any script:
    signed in ("you may close this tab"), cancelled, or failed. Google's own error text is never
    shown, here or there.
-4. Then as after a password: `my_privacy` / `accept_privacy` with the tick, and an account without a
-   profile gets "Choose your display name" (Google's name is not taken over).
+4. Then as after a password: `my_privacy`, and `accept_privacy` with the statement accepted in the
+   popup; an account without a profile gets "Choose your display name" (Google's name is not taken
+   over).
 
 The listener answers only `GET` with `Host: 127.0.0.1:<its port>` (a name rebound to 127.0.0.1 is
 turned away), with no-store, no-referrer and a strict CSP; it stops at the first answer. Nothing of it
@@ -411,15 +581,20 @@ while the program is built; a test fails when the two disagree). The server keep
 which version (`privacy_consents`, `accept_privacy(p_version)`, `my_privacy()`; schema.sql).
 
 - Playing without an account asks nothing.
-- The account panel's Sign in (and the email's code, and the password reset) and its "Create an
-  account" wait for the tick "I have read and agree to the privacy statement"; once signed in,
-  `accept_privacy` is sent.
+- The statement pops up before an account is made and before Google signs in (Luc, Beta 67): "Create
+  an account" and "Sign in with Google" open it first, with the sentence "I have read the Privacy
+  Statement and agree to the processing of my personal data as described therein.", "Cancel" and
+  "Accept and continue". Cancelled, nothing happens; accepted, the website opens, or the browser goes
+  to Google and `accept_privacy` is sent once signed in (`agree: true`).
+- The email sign-in (and the email's code, and the password reset) has no tick: it sends
+  `agree: false`, and an account that has not accepted the current version is asked right after
+  signing in, as below.
 - Every sign-in and every restored session asks `my_privacy()`. Below the current version (a new
   one, or an account made before there was one) the page asks over everything - a short summary,
   the whole text, Agree or Sign out - and the account does nothing meanwhile: the client refuses
   every request but those two functions (and deleting the account) with the code `privacy`, so the
   heartbeat, the friends, the invites, the leaderboard and the cloud saves wait.
-- The statement opens in the app from the tick, the Account panel, Settings > General and the
+- The statement opens in the app from those popups, the Account panel, Settings > General and the
   cloud saves (their question and their slots). It stays English, the binding text; the dialog
   says so in the player's language.
 - A new version: raise the marker in PRIVACY.md (and the website's copy); every player is asked
