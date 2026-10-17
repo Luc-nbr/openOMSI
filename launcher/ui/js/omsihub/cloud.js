@@ -217,7 +217,7 @@ export function CloudSaves() {
     ${local.length > 0 &&
     html`<label class="hubcs-pick" for="hubcs-pick">${tr('Local company to put in the cloud')}</label>
     <div class="hubcs-put">
-      <select id="hubcs-pick" class="hubcs-select" value=${chosen} onChange=${(e) => (setPick(e.currentTarget.value), setLimit(null))}>${local.map((c) => html`<option value=${c.id}>${c.name}</option>`)}</select>
+      <select id="hubcs-pick" class="hubcs-select" value=${chosen} onChange=${(e) => (setPick(e.currentTarget.value), setLimit(null))}>${local.map((c) => html`<option value=${c.id} title=${c.label || c.name}>${c.label || c.name}</option>`)}</select>
       <button type="button" class="hub-btn small primary" disabled=${busy || !chosen || v.offline} onClick=${() => put(chosen)}><${Icon} name="upload" size=${14} />${tr('Put this company in the cloud')}</button>
     </div>`}
     ${limit &&

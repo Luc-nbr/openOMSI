@@ -834,7 +834,22 @@ pub fn call(cmd: &str, args: &Value) -> Option<Answer> {
     Some(Ok(match cmd {
         "cs_state" => view(),
         // (the driver's companies, for "Put this company in the cloud")
-        "cs_companies" => json!(store::list(&data(), &core::load_config().profile).iter().map(|c| json!({ "id": c.id, "name": c.name })).collect::<Vec<_>>()),
+        // (each with its whole name for the picker: "Land (LAN) · Grundorf" - the name, the short
+        // name and the home map)
+        "cs_companies" => json!(store::list(&data(), &core::load_config().profile)
+            .iter()
+            .map(|c| {
+                let map = Some(c.map_name.trim()).filter(|n| !n.is_empty()).map(str::to_string).or_else(|| std::path::Path::new(&c.map).parent()?.file_name()?.to_str().map(str::to_string)).unwrap_or_default();
+                let mut label = c.name.trim().to_string();
+                if !c.short.trim().is_empty() && !c.short.trim().eq_ignore_ascii_case(c.name.trim()) {
+                    label = format!("{label} ({})", c.short.trim());
+                }
+                if !map.is_empty() {
+                    label = format!("{label} · {map}");
+                }
+                json!({ "id": c.id, "name": c.name, "label": label })
+            })
+            .collect::<Vec<_>>()),
         "cs_open" if ok_id => open(&id),
         "cs_resolve" if ok_id => resolve(&id, args.get("keep").and_then(Value::as_str).unwrap_or("cloud")),
         "cs_put" if ok_id => put(&id, args.get("replace").and_then(Value::as_u64).map(|n| n.min(255) as u8)),
