@@ -59,11 +59,14 @@ async function open(bus, paint, options) {
 }
 
 /**
- * The bus `bus` in livery `paint` in 3D. `turntable`: the dealer's slow turn after 6 s
- * without input. `onHandle`: the viewer itself (the livery studio, the self-check).
- * `studio`: the livery studio's controls (the left button is its tool, the right turns).
+ * The bus `bus` in livery `paint` in 3D. `options`: the bus options it wears (`[[var, value]]`;
+ * none given: the ones chosen for it on the bus step, read by the launcher as the game gets
+ * them). `optionsRev`: changed when those were chosen anew - the look is asked for again,
+ * the model stays. `turntable`: the dealer's slow turn after 6 s without input.
+ * `onHandle`: the viewer itself (the livery studio, the self-check). `studio`: the livery
+ * studio's controls (the left button is its tool, the right turns).
  */
-export function Bus3D({ bus, paint, options, class: cls = '', turntable = false, onHandle, onManifest, studio, hint = true, views = true, light = false }) {
+export function Bus3D({ bus, paint, options, optionsRev = 0, class: cls = '', turntable = false, onHandle, onManifest, studio, hint = true, views = true, light = false }) {
   const host = useRef();
   const canvas = useRef();
   const handle = useRef();
@@ -194,7 +197,7 @@ export function Bus3D({ bus, paint, options, class: cls = '', turntable = false,
         setState('failed');
       }
     })();
-  }, [bus, paint, optKey]);
+  }, [bus, paint, optKey, optionsRev]);
 
   useEffect(() => handle.current?.turntable(turntable), [turntable]);
 

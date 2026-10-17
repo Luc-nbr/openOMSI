@@ -37,6 +37,27 @@ function choices(o) {
 
 const cache = new Map();
 
+// (the bus step's preview wears the options chosen: `useOptionsRev`, told once a choice is kept)
+const revs = new Map();
+const hearing = new Set();
+
+/** A number that changes each time a bus option of `bus` is chosen here: the 3D preview asks
+ * for its look again then (`b3d_look` reads the choices as the game gets them). */
+export function useOptionsRev(bus) {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const l = () => redraw((k) => k + 1);
+    hearing.add(l);
+    return () => hearing.delete(l);
+  }, []);
+  return revs.get(bus) || 0;
+}
+
+function tell(bus) {
+  revs.set(bus, (revs.get(bus) || 0) + 1);
+  for (const l of hearing) l();
+}
+
 /** The section, for `bus` in livery `paint` (nothing for a bus without options). */
 export function BusOptions({ bus, paint }) {
   useStore();
@@ -57,7 +78,11 @@ export function BusOptions({ bus, paint }) {
   }, [key]);
   const r = cache.get(key);
   if (!r?.options?.length) return null;
-  const edit = (args) => call('hub_more_bus_option_set', { bus, ...args }).then(load);
+  const edit = (args) =>
+    call('hub_more_bus_option_set', { bus, ...args }).then(() => {
+      tell(bus);
+      return load();
+    });
   const looks = r.options.filter((o) => !o.technical);
   const technical = r.options.filter((o) => o.technical);
   const changed = r.options.filter((o) => o.chosen != null).length;

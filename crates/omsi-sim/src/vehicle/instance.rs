@@ -455,7 +455,9 @@ impl VehicleInstance {
     /// turns `v_font` to the Cyrillic font (7) while its switch is on and leaves it there
     /// when the switch goes off; the scheme's `v_font 0` every frame is what brings the
     /// Latin font back, which the matrix then draws at the next terminus. Set once, the
-    /// display stayed Cyrillic for good.
+    /// display stayed Cyrillic for good. A bus option (`--setvar`, `host.start_vars`) on a
+    /// variable the scheme sets is written in its place, as a livery setting it so would: else
+    /// "Off" over a livery's mirror on stood reset to on from the first frame.
     pub(crate) fn apply_scheme_vars_each_frame(&mut self) {
         let Some(Some(i)) = self.host.paint_scheme else { return };
         if let Some(s) = self.ty.paint_schemes.get(i) {
@@ -464,6 +466,7 @@ impl VehicleInstance {
             }
             let vars = s.set_vars.clone();
             for (var, v) in vars {
+                let v = self.host.start_vars.iter().find(|(o, _)| o.eq_ignore_ascii_case(&var)).map_or(v, |(_, x)| *x);
                 self.set_var(&var, v);
             }
         }
