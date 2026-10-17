@@ -233,13 +233,13 @@ _version: 2
   pl: "Nie znaleziono wersji: pierwszy kurs sprawdzi, co oferuje ten openOMSI"
   ru: "Версия не найдена: первая поездка проверит, что умеет этот openOMSI"
   uk: "Версію не знайдено: перша поїздка перевірить, що вміє цей openOMSI"
-"This openOMSI is older than 0.2.0: update it to use Omsi-Hub":
-  de: "Dieses openOMSI ist älter als 0.2.0: Aktualisiere es, um Omsi-Hub zu nutzen"
-  fr: "Cet openOMSI est antérieur à 0.2.0 : mettez-le à jour pour utiliser Omsi-Hub"
-  nl: "Deze openOMSI is ouder dan 0.2.0: werk hem bij om Omsi-Hub te gebruiken"
-  pl: "Ten openOMSI jest starszy niż 0.2.0: zaktualizuj go, aby używać Omsi-Hub"
-  ru: "Этот openOMSI старше 0.2.0: обновите его, чтобы пользоваться Omsi-Hub"
-  uk: "Цей openOMSI старший за 0.2.0: оновіть його, щоб користуватися Omsi-Hub"
+"This openOMSI is older than 0.2.22: update it to use Omsi-Hub":
+  de: "Dieses openOMSI ist älter als 0.2.22: Aktualisiere es, um Omsi-Hub zu nutzen"
+  fr: "Cet openOMSI est antérieur à 0.2.22 : mettez-le à jour pour utiliser Omsi-Hub"
+  nl: "Deze openOMSI is ouder dan 0.2.22: werk hem bij om Omsi-Hub te gebruiken"
+  pl: "Ten openOMSI jest starszy niż 0.2.22: zaktualizuj go, aby używać Omsi-Hub"
+  ru: "Этот openOMSI старше 0.2.22: обновите его, чтобы пользоваться Omsi-Hub"
+  uk: "Цей openOMSI старший за 0.2.22: оновіть його, щоб користуватися Omsi-Hub"
 "This openOMSI's plugin interface is too old: update openOMSI":
   de: "Die Plugin-Schnittstelle dieses openOMSI ist zu alt: Aktualisiere openOMSI"
   fr: "L'interface des plugins de cet openOMSI est trop ancienne : mettez openOMSI à jour"

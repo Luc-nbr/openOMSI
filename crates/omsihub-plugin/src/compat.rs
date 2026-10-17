@@ -3,7 +3,7 @@
 //! Two looks, the second one winning:
 //!
 //! * before the game ever ran with the plugin, the version read from the openOMSI folder
-//!   ([`estimate`]): every public release since 0.2.0 has the plugin API this add-on is written
+//!   ([`estimate`]): every public release since 0.2.22 has the plugin API this add-on is written
 //!   against (ABI 1); an older one is refused, a version not found is "checked at the first
 //!   drive";
 //! * once the plugin ran, its handshake ([`Hello`], `data/hello.json`): the API's ABI the game
@@ -23,7 +23,7 @@ pub const API_ABI: i64 = 1;
 
 /// The first public openOMSI release: the plugin API with Lua plugins, the duty, the panels and
 /// the plugin's own files (ABI 1) is in every release from here on.
-pub const FIRST_SUPPORTED: GameVersion = GameVersion::new(0, 2, 0);
+pub const FIRST_SUPPORTED: GameVersion = GameVersion::new(0, 2, 22);
 
 /// One thing the add-on does in the game, and the plugin API functions it needs.
 #[derive(Debug, Clone, Copy)]
@@ -59,7 +59,7 @@ pub static FEATURES: &[Feature] = &[
 
 /// The notes [`Compat`] gives, for the player (English: the launcher translates them).
 pub const NOTE_UNKNOWN: &str = "The version was not found: the first drive checks what this openOMSI offers";
-pub const NOTE_TOO_OLD: &str = "This openOMSI is older than 0.2.0: update it to use Omsi-Hub";
+pub const NOTE_TOO_OLD: &str = "This openOMSI is older than 0.2.22: update it to use Omsi-Hub";
 pub const NOTE_OLD_API: &str = "This openOMSI's plugin interface is too old: update openOMSI";
 pub const NOTE_NO_DUTY: &str = "This openOMSI does not tell plugins about the duty: update openOMSI";
 pub const NOTE_NEWER_API: &str = "This openOMSI has a newer plugin interface: update Omsi-Hub for everything to work";
@@ -169,6 +169,9 @@ mod tests {
         assert_eq!(estimate(Some(&GameVersion::new(0, 2, 1500))).level, Level::Supported);
         assert_eq!(estimate(Some(&GameVersion::new(0, 3, 0))).level, Level::Supported);
         assert_eq!(estimate(Some(&GameVersion::new(0, 1, 900))).level, Level::Unsupported);
+        // (the plugin API this add-on needs - `duty.get`, `duty.trips` - came with 0.2.22)
+        assert_eq!(estimate(Some(&GameVersion::new(0, 2, 21))).level, Level::Unsupported);
+        assert_ne!(estimate(Some(&GameVersion::new(0, 2, 22))).level, Level::Unsupported);
         let unknown = estimate(None);
         assert_eq!(unknown.level, Level::Unknown);
         assert!(!unknown.confirmed && !unknown.notes.is_empty());
