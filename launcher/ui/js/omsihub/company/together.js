@@ -174,10 +174,52 @@ function MyWork({ v, ask }) {
     <div class="co-scroll tg-side">
       <section class="co-section"><div class="co-caps">${w.stats_caps}</div><${Stats} st=${v.me.stats} w=${w} /></section>
       <${MyRole} v=${v} />
+      ${(v.me.perms || []).some((p) => p.key === 'drive' && p.on) && html`<${MyCrew} mine=${v.mine} />`}
       ${v.history.length > 0 && html`<section class="co-section"><div class="co-caps">${w.history_caps}</div>
         ${v.history.slice(0, 8).map((h) => html`<div class="tg-result"><b class="cut">${h.title}</b><span class="dim">${h.text}</span></div>`)}</section>`}
     </div>
   </div>`;
+}
+
+/** The player's own side (`company/crew.rs`, relayed as `co_crew`): the swaps asked of him and
+ * his own, a swap of one of his duties with another player, a sick call, and a handover note or a
+ * defect of the bus he drives - each on his own duty and bus only. */
+function MyCrew({ mine }) {
+  const [c, again] = usePoll('tg_relay', 4000, { cmd: 'co_crew', args: { act: 'view' } });
+  const [f, setF] = useState({ duty: null, with: '', tpl: '', note: '', kind: 'doors', defect: '' });
+  if (!c || c.error || !c.words) return null;
+  const w = c.words;
+  const put = (patch) => setF({ ...f, ...patch });
+  const crew = async (args) => {
+    const r = await run('tg_relay', { cmd: 'co_crew', args });
+    if (r && !r.error) toast(w.sent, 'ok');
+    again();
+  };
+  const name = (x) => (x.theirs ? x.theirs.line + ' ' + x.theirs.tour : '');
+  const bus = c.buses[0];
+  return html`<section class="co-section tg-crew"><div class="co-caps">${w.caps}</div>
+    ${c.swaps.length > 0 && html`<div class="tg-crew-h">${w.swaps}</div>
+      ${c.swaps.map((x) => html`<div class="tg-crew-row"><span class="cut">${x.asked_of_me ? w.asked_of_me.replace('%{name}', x.from).replace('%{mine}', x.mine.line + ' ' + x.mine.tour) : x.mine.line + ' ' + x.mine.tour + (name(x) ? ' ⇄ ' + name(x) : '')}</span>
+        ${x.asked_of_me
+          ? html`<${Btn} kind="primary" label=${w.accept} onClick=${() => crew({ act: 'swap_answer', no: x.no, yes: true })} /><${Btn} label=${w.refuse} onClick=${() => crew({ act: 'swap_answer', no: x.no, yes: false })} />`
+          : html`<span class=${'t-' + (x.state === 'accepted' ? 'ok' : x.state === 'refused' ? 'danger' : 'warn')}>${w[x.state]}${x.why ? ': ' + x.why : ''}</span>`}</div>`)}`}
+    ${mine.filter((d) => d.key === 'mine').map((d) => html`<div class="tg-crew-row"><span class="cut">${d.times} · ${d.route}</span>
+      ${f.duty === d.title
+        ? html`<select class="tg-crew-in" value=${f.with} onChange=${(e) => put({ with: e.currentTarget.value })}><option value="">${w.with}</option>${c.players.map((p) => html`<option value=${p.no}>${p.name}</option>`)}</select>
+          <${Btn} kind="primary" label=${w.ask} disabled=${!f.with} onClick=${() => (crew({ act: 'swap', duty: d.duty, with: Number(f.with) }), put({ duty: null, with: '' }))} />`
+        : html`<${Btn} icon="swap_horiz" label=${w.swap} disabled=${c.players.length === 0} onClick=${() => put({ duty: d.title })} />`}</div>`)}
+    ${bus
+      ? html`<div class="tg-crew-h">${w.bus.replace('%{bus}', bus.number)}</div>
+        ${bus.notes.length ? bus.notes.map((n) => html`<div class="tg-crew-row dim">${n}</div>`) : html`<div class="tg-crew-row dim">${w.no_notes}</div>`}
+        <div class="tg-crew-row"><select class="tg-crew-in" value=${f.tpl} onChange=${(e) => put({ tpl: e.currentTarget.value })}><option value="">${w.none}</option>${c.templates.map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select>
+          <input class="tg-crew-in" maxlength="140" placeholder=${w.note_ph} value=${f.note} onInput=${(e) => put({ note: e.currentTarget.value })} />
+          <${Btn} icon="sticky_note_2" label=${w.note} disabled=${!f.tpl && !f.note.trim()} onClick=${() => (crew({ act: 'note', bus: bus.id, template: f.tpl, text: f.note.trim() }), put({ tpl: '', note: '' }))} /></div>
+        <div class="tg-crew-row"><select class="tg-crew-in" value=${f.kind} onChange=${(e) => put({ kind: e.currentTarget.value })}>${c.checks.map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select>
+          <input class="tg-crew-in" maxlength="140" placeholder=${w.defect_ph} value=${f.defect} onInput=${(e) => put({ defect: e.currentTarget.value })} />
+          <${Btn} icon="build" label=${w.report} onClick=${() => (crew({ act: 'defect', bus: bus.id, kind: f.kind, text: f.defect.trim() }), put({ defect: '' }))} /></div>`
+      : html`<div class="tg-crew-row dim">${w.no_bus}</div>`}
+    <div class="tg-crew-row"><span class="rest"></span><${Btn} kind="danger" icon="sick" label=${w.sick} onClick=${() => window.confirm(w.sick_confirm) && crew({ act: 'sick', days: 1 })} /></div>
+  </section>`;
 }
 
 /** Give a duty of the day to a player (a role that may), or take one off. */

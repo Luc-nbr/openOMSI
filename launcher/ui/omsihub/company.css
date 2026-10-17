@@ -1476,3 +1476,14 @@ button.co-top-crumb:hover { background: var(--hub-hover); color: var(--hub-text)
 .co-dash-text { font-size: var(--co-rows); line-height: 1.45; color: var(--hub-text); min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .co-dash-needs .co-dash-go { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
 .co-dash-calm { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--hub-text-soft); font-size: var(--co-rows); text-align: center; }
+
+/* a bus's handover notes and defects (the bus's dialog, the Workshop page: `BusCrew`, `DefectRow`) */
+.co-crew { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
+.co-crew-h { font-size: var(--co-caps); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; margin-top: 8px; }
+.co-crew-row { display: flex; align-items: flex-start; gap: 8px; font-size: var(--co-rows); padding: 5px 0; border-top: 1px solid rgba(var(--co-white), 0.07); }
+.co-crew-row .icon { flex: none; opacity: 0.75; margin-top: 1px; }
+.co-crew-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.co-crew-what small { font-size: var(--co-note); opacity: 0.6; }
+.co-crew-when { flex: none; font-size: var(--co-note); opacity: 0.6; }
+.co-crew-state { flex: none; font-size: var(--co-note); font-weight: 700; }
+.co-crew-none { font-size: var(--co-note); opacity: 0.55; padding: 4px 0; }

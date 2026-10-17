@@ -70,6 +70,10 @@ pub struct Assigned {
     pub company: String,
     pub line: String,
     pub tour: String,
+    /// The company whose duty it is, by its id ("": a drive of the player's own): the driver's
+    /// notes and defects go to it (`crew_order`).
+    #[serde(default)]
+    pub company_id: String,
 }
 
 fn path() -> PathBuf {
@@ -300,8 +304,10 @@ fn assign(a: Assignment, lang: &str) -> Answer {
 /// Give the plugin the duty of a drive about to start, where the plugin is on (otherwise
 /// nothing happens): `company` names the company's duty (its name and the duty's
 /// id); a drive of the player's own gets an assignment as well, so that its trips are booked
-/// for the right driver. Said in the launcher's log when it fails: the drive starts anyway.
-pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
+/// for the right driver. `crew`: the duty strip and the bus's notes of a company's duty, and
+/// `company_id` the company its notes and defects go to. Said in the launcher's log when it
+/// fails: the drive starts anyway.
+pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>, crew: Option<bridge::Crew>, company_id: Option<&str>) {
     let mut c = load();
     let Ok(dir) = game_plugins_dir(&c) else { return };
     if install::status(&dir).state != install::State::On {
@@ -329,6 +335,8 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
         bus: d.bus.clone(),
         display_font: d.display_font.clone().unwrap_or_default(),
         editor: d.editor,
+        // (the duty strip unless the navigator's settings say not: `nav_strip`)
+        crew: crew.map(|x| bridge::Crew { strip: Some(on("nav_strip", true)), ..x }),
         ..Assignment::default()
     };
     write_texts(&install::plugin_dir(&dir));
@@ -342,6 +350,7 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
                 company: name.to_string(),
                 line: d.line.clone().unwrap_or_default(),
                 tour: d.tour.clone().unwrap_or_default(),
+                company_id: company_id.unwrap_or_default().to_string(),
             });
             let _ = save(&c);
         }
@@ -426,9 +435,55 @@ pub fn book() -> Vec<bridge::Report> {
                 core::log_to_file(&format!("add-on: a trip of line {} not booked: {e:#}", t.line));
             }
         }
+        // (a handover note, a defect of the walk-around, a fault on the way: to the company's
+        // queue, which the launcher carries out with the company's rules - `remote::take`)
+        if let Some((company, o)) = a.and_then(|a| crew_order(r, a)) {
+            if let Err(e) = core::company::remote::queue(&data, &company, &o) {
+                core::log_to_file(&format!("add-on: a {} of the driver not queued: {e:#}", r.kind));
+            }
+        }
     }
     let _ = save(&c);
     new
+}
+
+/// What a crew report of the plugin (`bridge::Report::is_crew`) orders the company of the
+/// assignment `a`: the company's id and the order (None: not a company's duty, or not a report of
+/// a known shape - checked as strictly as the phone's orders, `remote::parse`).
+pub fn crew_order(r: &bridge::Report, a: &Assigned) -> Option<(String, core::company::remote::Order)> {
+    if !r.is_crew() || a.company_id.is_empty() || r.bus_id == 0 {
+        return None;
+    }
+    let text = if r.kind == "fault" { core::company::crew::COLLISION.to_string() } else { r.text.clone() };
+    let text: String = text.chars().take(core::company::crew::TEXT_MAX).collect();
+    let v = match r.kind.as_str() {
+        "note" => json!({ "do": "note", "bus": r.bus_id, "template": (!r.template.is_empty()).then_some(r.template.as_str()), "text": text }),
+        _ => json!({ "do": "defect", "bus": r.bus_id, "kind": r.defect, "text": text, "fault": r.kind == "fault" }),
+    };
+    core::company::remote::parse(&v).map(|o| (a.company_id.clone(), o))
+}
+
+/// The last notices for the driver in the game (`notify_game`): the plugin reads the file every
+/// few seconds and shows each id once, so the last few stay in it.
+static NOTICES: std::sync::Mutex<Vec<bridge::Notice>> = std::sync::Mutex::new(Vec::new());
+const NOTICES_KEPT: usize = 12;
+
+/// Notices for the driver in the game Omsi-Hub started, as cards (`data/notices.json`, the
+/// plugin's live notices): where the plugin is on; nothing happens otherwise.
+pub fn notify_game(notices: Vec<bridge::Notice>) {
+    if notices.is_empty() {
+        return;
+    }
+    let c = load();
+    let dir = if in_addon_mode(&c) { plugins_dir().ok() } else { own_plugins_dir() };
+    let Some(dir) = dir.filter(|d| install::status(d).state == install::State::On) else { return };
+    let mut kept = NOTICES.lock().unwrap_or_else(|e| e.into_inner());
+    kept.extend(notices);
+    let over = kept.len().saturating_sub(NOTICES_KEPT);
+    kept.drain(..over);
+    if let Err(e) = bridge::write_notices(&install::plugin_dir(&dir), &kept) {
+        core::log_to_file(&format!("add-on: the notices for the game not written: {e}"));
+    }
 }
 
 fn reports() -> Answer {
@@ -463,6 +518,29 @@ mod tests {
         let c: Choice = serde_json::from_str(r#"{"folder":"C:\\Games\\openOMSI"}"#).unwrap();
         assert_eq!((c.folder.as_str(), c.reports.offset), ("C:\\Games\\openOMSI", 0));
         assert_eq!(serde_json::from_str::<Choice>("{}").unwrap(), Choice::default());
+    }
+
+    #[test]
+    fn the_driver_s_notes_and_defects_go_to_the_company_of_the_duty() {
+        let a = Assigned { issued: 7, driver: "Luc".into(), company: "stadtbus".into(), ..Default::default() };
+        let r = |kind: &str| bridge::Report { kind: kind.into(), issued: 7, bus_id: 4, ..Default::default() };
+        let note = bridge::Report { template: "door_sticks".into(), text: "rear".into(), ..r("note") };
+        let (company, o) = crew_order(&note, &a).unwrap();
+        assert_eq!(company, "stadtbus");
+        assert_eq!(o, core::company::remote::Order::Note { bus: 4, template: Some(core::company::crew::NoteTemplate::DoorSticks), text: "rear".into() });
+        let defect = bridge::Report { defect: "tyres".into(), ..r("defect") };
+        assert_eq!(crew_order(&defect, &a).map(|x| x.1), Some(core::company::remote::Order::Defect { bus: 4, kind: core::company::crew::DefectKind::Tyres, text: String::new(), fault: false }));
+        // a collision the game saw: a fault, in the company's words
+        let fault = bridge::Report { defect: "other".into(), minutes: Some(30.0), ..r("fault") };
+        assert!(matches!(crew_order(&fault, &a).map(|x| x.1), Some(core::company::remote::Order::Defect { fault: true, ref text, .. }) if text == core::company::crew::COLLISION));
+        // not of a company's duty, no bus, an unknown check, a trip: nothing
+        assert!(crew_order(&note, &Assigned { company: String::new(), ..a.clone() }).is_none());
+        assert!(crew_order(&bridge::Report { bus_id: 0, ..note.clone() }, &a).is_none());
+        assert!(crew_order(&bridge::Report { defect: "engine".into(), ..r("defect") }, &a).is_none());
+        assert!(crew_order(&r("trip"), &a).is_none());
+        // (an older launcher's choice reads, without the company)
+        let old: Assigned = serde_json::from_str(r#"{"issued":3,"driver":"Luc","map":"m","bus":"b"}"#).unwrap();
+        assert_eq!(old.company, "");
     }
 
     #[test]

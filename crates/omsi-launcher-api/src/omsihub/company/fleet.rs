@@ -160,9 +160,39 @@ pub fn vehicle_view(s: &mut Session, args: &Value) -> Value {
         "design": trf("Design a livery (%{amount})", &[("amount", &eur(fee))]),
         "design_tip": tr("Paint the company's own livery for this bus in the livery studio: its design is paid when it is saved, a bus's painting when the bus is painted."),
         "rows": rows, "status": status, "tone": tone,
+        "crew": crew_json(&c, id),
         "age": super::age::age_switch(v.age_from == co::registrations::AgeFrom::Manual, &v.built),
         "sell": tr(if matches!(v.tenure, Tenure::Owned { .. }) { "Sell" } else { "Give back" }),
         "service": tr("Service tomorrow"), "train": tr("Train drivers"), "close": tr("Close"),
+    })
+}
+
+/// A bus's handover notes of today and its defects (`co::crew`): what the drivers left and
+/// reported, and how far the workshop is with each defect.
+pub fn crew_json(c: &co::Company, id: u32) -> Value {
+    let notes: Vec<Value> = co::crew::notes_for(c, id).iter().map(|n| json!({ "at": co::clock::hhmm(n.at as i64), "by": n.by, "says": super::launch::note_words(n) })).collect();
+    let defects: Vec<Value> = co::crew::defects_of(c, id).iter().take(12).map(|d| defect_json(c, d)).collect();
+    json!({
+        "notes_title": tr("Handover notes today"), "notes": notes, "no_notes": tr("No notes today."),
+        "defects_title": tr("Defects"), "defects": defects, "no_defects": tr("No defects reported."),
+    })
+}
+
+/// A defect as the pages show it: what, when, who, and where the workshop is with it.
+pub fn defect_json(c: &co::Company, d: &co::crew::Defect) -> Value {
+    let job = d.job.and_then(|j| c.site.jobs.iter().find(|x| x.id == j));
+    let (state, tone) = match (d.open(c), job) {
+        (false, _) => (tr("put right"), "ok"),
+        (true, Some(j)) if j.started.is_some() => (trf("in the workshop until %{date}", &[("date", &day_label(j.until.as_deref().unwrap_or(&c.date)))]), "warn"),
+        (true, Some(_)) => (tr("waiting for a bay"), "warn"),
+        (true, None) if d.until.is_some() => (trf("in the workshop until %{date}", &[("date", &day_label(d.until.as_deref().unwrap_or(&c.date)))]), "warn"),
+        (true, None) => (tr("no job yet: not enough cash"), "danger"),
+    };
+    let who = if d.fault { tr("logged on the way") } else { trf("reported by %{name}", &[("name", &d.by)]) };
+    json!({
+        "id": d.id, "icon": d.kind.icon(), "kind": tr(d.kind.label()), "text": tr(&d.text), "date": day_label(&d.date), "at": co::clock::hhmm(d.at as i64),
+        "who": who, "state": state, "tone": tone, "held": d.held, "held_text": d.held.then(|| tr("off the road that day")),
+        "bus": c.vehicle(d.vehicle).map(|v| v.number.clone()).unwrap_or_default(), "vehicle": d.vehicle,
     })
 }
 

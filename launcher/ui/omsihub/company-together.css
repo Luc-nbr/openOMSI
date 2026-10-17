@@ -185,3 +185,11 @@
 .tg-mate { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--hub-r); background: rgba(var(--co-white), 0.03); min-width: 0; }
 .tg-mate.me { box-shadow: inset 0 0 0 1px rgba(var(--hub-accent-rgb), 0.5); }
 .tg-mate .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.4; font-size: var(--co-rows); }
+
+/* a player's own side: swaps, a sick call, his bus's notes and defects (`MyCrew`) */
+.tg-crew-h { font-size: var(--co-caps); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; margin-top: 10px; }
+.tg-crew-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: var(--co-rows); }
+.tg-crew-row > .cut { flex: 1; min-width: 0; }
+.tg-crew-row.dim { opacity: 0.6; }
+.tg-crew-row .rest { flex: 1; }
+.tg-crew-in { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid rgba(var(--co-white), 0.12); background: rgba(var(--co-white), 0.05); color: inherit; font: inherit; }

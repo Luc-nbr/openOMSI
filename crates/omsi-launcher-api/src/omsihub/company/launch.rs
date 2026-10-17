@@ -222,13 +222,66 @@ fn start(s: &mut Session, args: &Value, p: &dyn crate::Platform) -> Result<Value
     }
     core::log_to_file(&format!("company duty launcher: {} {} duty {} on {} with {}", st.line, st.tour, sheet.duty.duty + 1, st.date, st.bus));
     // (the add-on's plugin told of the company's duty: `addon.rs`)
-    super::super::addon::assign_duty(&d, Some((&c.name, &format!("{} {} {}", st.line, st.tour, sheet.duty.duty + 1))));
+    let crew = crew_of(s, &c, &sheet);
+    super::super::addon::assign_duty(&d, Some((&c.name, &format!("{} {} {}", st.line, st.tour, sheet.duty.duty + 1))), Some(crew), Some(&c.id));
     let launched = core::launch(&d).map_err(|e| format!("{e:#}"))?;
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
     p.launched();
     let t = tr("Starting your company's duty…");
     s.say(t, false);
     Ok(json!({ "launched": serde_json::to_value(launched).unwrap_or(Value::Null) }))
+}
+
+/// The driver's side of the duty for the game's plugin (`bridge::Crew`, `lua/duty_strip.lua`): its
+/// pieces as the sheet has them, what changed on it today (`crew::changes`), the bus's handover
+/// notes of today, and the forms' choices - its words in the launcher's language.
+pub fn crew_of(s: &mut Session, c: &Company, sheet: &Sheet) -> omsihub_plugin::bridge::Crew {
+    use omsihub_plugin::bridge::{Crew, StripRow};
+    let rows = sheet
+        .rows
+        .iter()
+        .map(|r| match r {
+            Row::SignOn { at, time, relief } => StripRow { kind: "sign_on".into(), at: at.clone(), from: *time, to: *time, relief: *relief, ..Default::default() },
+            Row::Trip { dep, arr, line, from, to, empty, .. } => StripRow { kind: "trip".into(), at: from.clone(), to_place: to.clone(), from: *dep, to: *arr, line: line.clone(), empty: *empty, ..Default::default() },
+            Row::Break { at, from, to } => StripRow { kind: "break".into(), at: at.clone(), from: *from, to: *to, ..Default::default() },
+            Row::SignOff { at, time, relief } => StripRow { kind: "sign_off".into(), at: at.clone(), from: *time, to: *time, relief: *relief, ..Default::default() },
+        })
+        .collect();
+    let changes = match plan_of(s, &sheet.duty.date) {
+        Some(Ok(p)) => sheet.duty.find(&p).map(|(ti, k)| co::crew::changes(c, &p, ti, k)).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let changes = changes
+        .iter()
+        .map(|ch| {
+            let (text, args) = ch.words();
+            let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            trf(text, &args)
+        })
+        .collect();
+    let bus = sheet.bus.as_ref();
+    let notes = bus.map(|b| co::crew::notes_for(c, b.id).iter().map(|n| trf(co::crew::NOTE_LEFT, &[("bus", &b.number), ("note", &note_words(n))])).collect()).unwrap_or_default();
+    Crew {
+        strip: None,
+        rows,
+        changes,
+        bus: bus.map_or(0, |b| b.id),
+        bus_number: bus.map(|b| b.number.clone()).unwrap_or_default(),
+        notes,
+        templates: co::crew::NoteTemplate::ALL.iter().map(|t| (t.key().to_string(), tr(t.text()))).collect(),
+        checks: co::crew::DefectKind::ALL.iter().map(|k| (k.key().to_string(), tr(k.label()))).collect(),
+        text_max: co::crew::TEXT_MAX as u32,
+        low_fuel: 0.15,
+    }
+}
+
+/// A note's words in the launcher's language (its template translated, the typed text as it is).
+pub fn note_words(n: &co::crew::Note) -> String {
+    match (n.template, n.text.is_empty()) {
+        (Some(t), true) => tr(t.text()),
+        (Some(t), false) => format!("{}: {}", tr(t.text()), n.text),
+        (None, _) => n.text.clone(),
+    }
 }
 
 /// What the duty launcher does.

@@ -530,11 +530,16 @@ const ALSO: &[&str] = &[
 /// The page's texts in `lang`: every key of the table with its translation (the English
 /// text itself where there is none).
 pub(crate) fn texts(lang: &str, lookup: Lookup) -> Value {
+    // (the Company tab's crew card: the launcher's texts, `crew.yml` - the company says them)
+    let launcher = if lang.is_empty() || lang == "en" { Default::default() } else { omsi_launcher_api::i18n::table(lang) };
+    let reasons = omsi_launcher_lib::company::holidays::Reason::ALL.map(|r| r.label());
+    let crew = omsi_launcher_lib::company::crew::texts().into_iter().chain(super::company::PHONE_TEXTS.iter().copied()).chain(reasons).map(str::to_string);
     let map: serde_json::Map<String, Value> = locale_keys(LOCALE)
         .into_iter()
         .chain(ALSO.iter().map(|k| k.to_string()))
+        .chain(crew)
         .map(|k| {
-            let t = if lang.is_empty() || lang == "en" { None } else { lookup(lang, &k) };
+            let t = if lang.is_empty() || lang == "en" { None } else { lookup(lang, &k).or_else(|| launcher.get(&k).cloned()) };
             let v = Value::String(t.unwrap_or_else(|| k.clone()));
             (k, v)
         })
@@ -1124,6 +1129,14 @@ mod tests {
                 // (not `t(` at the end of another name: `split(`, `setTimeout(`, `.at(`)
                 let before = rest[..at].chars().last().unwrap_or(' ');
                 if !(before.is_alphanumeric() || matches!(before, '_' | '.' | '$')) {
+                    // (the Company tab's crew card: the launcher's texts, in its tables)
+                    if super::super::company::PHONE_TEXTS.contains(&text.as_str()) || omsi_launcher_lib::company::crew::texts().contains(&text.as_str()) {
+                        for lang in ["nl", "de", "fr", "ru", "uk", "pl"] {
+                            assert!(omsi_launcher_api::i18n::table(lang).contains_key(&text), "'{text}' has no {lang} in the launcher's tables (crew.yml)");
+                        }
+                        rest = &after[end..];
+                        continue;
+                    }
                     assert!(keys.contains(&text) || ALSO.contains(&text.as_str()), "the page asks for '{text}', which the table does not have");
                     // (and what it borrows from the game's table is there, in six languages)
                     if !keys.contains(&text) {

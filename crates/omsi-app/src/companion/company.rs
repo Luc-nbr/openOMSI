@@ -2,6 +2,10 @@
 //! tablet sees it (`company::remote::summary`: money, today's dispositions, the depot and its
 //! workshop), and the orders it may send for it.
 //!
+//! The driver's side is here too (`remote::crew_summary`, `co::crew`): his week as the roster has
+//! it, his duty swaps, his holidays and a sick call, the bus he drives today with its handover
+//! notes and defects - asked for and reported as orders like the others.
+//!
 //! The company is the launcher's: the game only reads its file, and an order from a device is
 //! checked against it (with the orders still waiting) and put in the company's queue, which
 //! the launcher carries out with the same rules. The device names nothing but an order of a
@@ -31,6 +35,61 @@ struct Cached {
 
 static PLAN: Mutex<Option<Cached>> = Mutex::new(None);
 
+/// The plans of the week ahead (the driver's roster), for the company file they were made from.
+struct Week {
+    key: (String, String, SystemTime),
+    at: Instant,
+    plans: Vec<co::plan::DayPlan>,
+}
+
+static WEEK: Mutex<Option<Week>> = Mutex::new(None);
+
+/// The texts the phone's crew card shows besides the company's own (`co::crew::texts`): their
+/// translations are the launcher's (`crates/omsihub-locales/locales/crew.yml`, `server::texts`).
+pub(crate) const PHONE_TEXTS: &[&str] = &[
+    "My duties",
+    "My week",
+    "Off",
+    "Ill",
+    "On holiday",
+    "Swap",
+    "Ask to swap with",
+    "Ask",
+    "Cancel",
+    "Swap requests",
+    "asked",
+    "accepted",
+    "refused",
+    "Holiday",
+    "From",
+    "Until",
+    "Reason",
+    "Ask for these days",
+    "approved",
+    "rejected",
+    "Sick call",
+    "You are reported ill until %{date}.",
+    "I am well again",
+    "Days",
+    "Call in sick",
+    "Your duties of those days go to the dispatcher. Call in sick?",
+    "Bus %{bus} today",
+    "No duty with a bus today.",
+    "Handover notes",
+    "No notes for today.",
+    "Leave a note",
+    "Template",
+    "None",
+    "Or type a note",
+    "Defects",
+    "No open defects.",
+    "Report a defect",
+    "What is wrong (optional)",
+    "Report",
+    "No duty in the week ahead.",
+    "begun",
+];
+
 /// What the tab shows (`GET /api/company`).
 pub(crate) fn state() -> Value {
     let data = omsi_launcher_lib::data_dir();
@@ -55,6 +114,19 @@ pub(crate) fn state() -> Value {
         let inbox = std::fs::read_to_string(co::messages::inbox_file(&data, &c.id)).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
         v["messages"] = inbox.unwrap_or(Value::Null);
     }
+    // (the driver's week: seven days' plans, made again with the plan)
+    let week = {
+        let mut cache = WEEK.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.as_ref() {
+            Some(x) if x.key == (c.id.clone(), c.date.clone(), saved) && x.at.elapsed().as_secs() < PLAN_FOR_SECS => x.plans.clone(),
+            _ => {
+                let plans = remote::week_plans(&c);
+                *cache = Some(Week { key: (c.id.clone(), c.date.clone(), saved), at: Instant::now(), plans: plans.clone() });
+                plans
+            }
+        }
+    };
+    v["crew"] = remote::crew_summary(&c, &week);
     v
 }
 

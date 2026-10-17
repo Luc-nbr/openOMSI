@@ -196,9 +196,33 @@ export function VehicleDialog({ d }) {
       <${BusSide} file=${v.file} name=${v.name} kind=${v.bus_kind} livery=${v.livery} onLivery=${(p) => act('bus_livery', { id: d.id, livery: p })} design=${v.design} designTip=${v.design_tip} onDesign=${() => act('design_livery', { id: d.id })} />
       <div class="right">${v.rows.map((r) => html`<${PriceRow} r=${r} />`)}
         ${v.age && html`<${AgeSet} a=${v.age} onSet=${(y) => act('bus_age', { id: d.id, year: y })} />`}
-        <div class=${'co-para t-' + v.tone} style="font-weight:700;margin-top:10px;line-height:26px">${v.status}</div></div>
+        <div class=${'co-para t-' + v.tone} style="font-weight:700;margin-top:10px;line-height:26px">${v.status}</div>
+        ${v.crew && html`<${BusCrew} c=${v.crew} />`}</div>
     </div>
   </${Dialog}>`;
+}
+
+/** A bus's handover notes of today and its defects (`fleet::crew_json`). */
+export function BusCrew({ c }) {
+  return html`<div class="co-crew">
+    <div class="co-crew-h">${c.notes_title}</div>
+    ${c.notes.length
+      ? c.notes.map((n) => html`<div class="co-crew-row"><${Icon} name="sticky_note_2" size=${16} /><span class="co-crew-what">${n.says}</span><span class="co-crew-when">${n.at} · ${n.by}</span></div>`)
+      : html`<div class="co-crew-none">${c.no_notes}</div>`}
+    <div class="co-crew-h">${c.defects_title}</div>
+    ${c.defects.length
+      ? c.defects.map((d) => html`<${DefectRow} d=${d} />`)
+      : html`<div class="co-crew-none">${c.no_defects}</div>`}
+  </div>`;
+}
+
+/** A defect: what, when and who, and where the workshop is with it. */
+export function DefectRow({ d, bus }) {
+  return html`<div class="co-crew-row">
+    <${Icon} name=${d.icon} size=${16} />
+    <span class="co-crew-what"><b>${bus ? d.bus + ' · ' : ''}${d.kind}</b>${d.text ? ': ' + d.text : ''}<small>${d.date} ${d.at} · ${d.who}${d.held_text ? ' · ' + d.held_text : ''}</small></span>
+    <span class=${'co-crew-state t-' + d.tone}>${d.state}</span>
+  </div>`;
 }
 
 /** Leasing or renting one of the dealer's buses (`Dialog::New`). */

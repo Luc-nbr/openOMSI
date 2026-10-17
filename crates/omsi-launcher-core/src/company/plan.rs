@@ -1210,6 +1210,12 @@ fn block_of(t: &TourOfDay, d: &DayDuty, key: String) -> Block {
     Block { key, from: d.from, to: d.to, from_stop: t.trips[d.start].from.clone(), to_stop: t.trips[d.end - 1].to.clone() }
 }
 
+/// Duty `k` of tour `ti` of `p` as a driver's working time sees it (`fits_bus`).
+pub fn duty_block(p: &DayPlan, ti: usize, k: usize) -> Block {
+    let t = &p.tours[ti];
+    block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k))
+}
+
 fn covers(u: &Option<String>, date: &str) -> bool {
     u.as_deref().is_some_and(|u| dates::between(date, u) >= 0)
 }
@@ -1687,12 +1693,16 @@ pub fn day_plan(c: &Company, date: &str, tours: Vec<TourOfDay>, player: &[(Strin
             continue;
         }
         let Some(who) = roster(c, wd, &out[i].tour.line, &out[i].tour.tour).and_then(|r| r.duties.get(k).copied().flatten()) else { continue };
+        // (a swap the player agreed with a colleague: for that day only, `crew::swapped`)
+        let who = super::crew::swapped(c, date, &out[i].tour.line, &out[i].tour.tour, k, who);
         let bus = out[i].bus_of(c);
         let t = &out[i];
         let block = block_of(&t.tour, &t.duties[k], duty_key(&t.tour.line, &t.tour.tour, k));
         let d = &mut out[i].duties[k];
         match who {
             Who::Player if closing => d.problem = Some(Problem::Player),
+            // (the player called in sick or is on holiday: open for the dispatcher, `crew`)
+            Who::Player if super::crew::player_off(c, date).is_some() => d.problem = super::crew::player_off(c, date),
             // (a player of "Play together" is never in the roster: only his claim of the day puts
             // him on a duty)
             Who::Guest(_) => {}

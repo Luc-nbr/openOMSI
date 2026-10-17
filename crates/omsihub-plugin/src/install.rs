@@ -31,6 +31,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("board.lua", include_str!("../lua/board.lua")),
     ("signon.lua", include_str!("../lua/signon.lua")),
     ("messages.lua", include_str!("../lua/messages.lua")),
+    ("duty_strip.lua", include_str!("../lua/duty_strip.lua")),
 ];
 /// The texts the plugin shows (`tr` in `lua/main.lua`), in English: Omsi-Hub puts their
 /// translations into the assignment (`bridge::Assignment::texts`).
@@ -143,6 +144,40 @@ pub const TEXTS: &[&str] = &[
     "F9: messages · F10: use the panels with the mouse",
     "Hold over: carry on",
     "Sent to control",
+    // the duty strip, the handover notes and the walk-around (`lua/duty_strip.lua`)
+    "in %{h} h %{m} min",
+    "in %{m} min",
+    "Sign on at %{place} at %{time}",
+    "Empty run to %{place} until %{time}",
+    "Line %{line} to %{place} until %{time}",
+    "Break at %{place} until %{time}",
+    "On duty",
+    "Fuel low",
+    "Return to the depot to refuel",
+    "A note for the next driver of bus %{bus}",
+    "Or type a note",
+    "Leave the note",
+    "Close",
+    "Walk-around check of bus %{bus}",
+    "Tick what is not in order: the workshop gets it.",
+    "What is wrong (optional)",
+    "Report defects",
+    "All in order",
+    "now, until %{time}",
+    "Next break",
+    "Next relief",
+    "Relief due",
+    "At %{place} at %{time}",
+    "End of duty",
+    "Charge",
+    "Fuel",
+    "Leave a note",
+    "Defect check",
+    "A note was left for you",
+    "Defects reported",
+    "%{n} reported to the workshop",
+    "Note left",
+    "The next driver of bus %{bus} sees it",
 ];
 
 /// The sounds of the control room's messages (`lua/messages.lua`), made here as small WAV files:

@@ -984,6 +984,10 @@ pub struct Company {
     /// none).
     #[serde(default)]
     pub messages: super::messages::Messages,
+    /// The drivers' side: handover notes, defects reported, duty swaps, the player's holidays and
+    /// sick calls (`crew`; a file of before: none).
+    #[serde(default)]
+    pub crew: super::crew::Crew,
 }
 
 fn one() -> f64 {

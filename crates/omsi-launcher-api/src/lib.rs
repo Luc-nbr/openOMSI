@@ -399,7 +399,7 @@ fn game_log(pid: u32, lines: Option<usize>) -> Answer {
 fn launch(p: &dyn Platform, duty: Value) -> Answer {
     let d: core::Duty = serde_json::from_value(duty).map_err(err)?;
     // Omsi-Hub: its plugin told of the drive (`omsihub/addon.rs`)
-    omsihub::addon::assign_duty(&d, None);
+    omsihub::addon::assign_duty(&d, None, None, None);
     let launched = core::launch(&d).map_err(err)?;
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
     p.launched();

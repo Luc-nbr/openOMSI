@@ -1016,6 +1016,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let tomorrow = dates::add(&date, 1);
     let mut repairs: Vec<(Cents, String)> = Vec::new();
     let mut serviced: Vec<u32> = Vec::new();
+    // (the breakdowns and accidents logged with the buses' defects: `crew::log_fault`)
+    let mut faults: Vec<(u32, bool, String)> = Vec::new();
     // (a bus under the dealer's warranty is repaired at the dealer's cost)
     let warranted = super::dealer::warranted(c, &date);
     // (the company's own mechanics have a broken-down bus back a day sooner)
@@ -1032,6 +1034,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
             let days = if mechanics > 0 { (days - 1).max(1) } else { days };
             v.workshop_until = Some(dates::add(&date, days));
             v.condition = (v.condition - 8.0).max(0.0);
+            faults.push((v.id, true, dates::add(&date, days)));
         } else if cut.iter().any(|x| x.vehicle == v.id) {
             let days = rng.int(1, 3);
             let days = if mechanics > 0 { (days - 1).max(1) } else { days };
@@ -1041,6 +1044,7 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
             v.workshop_until = Some(until.clone());
             v.breakdowns += 1;
             v.condition = (v.condition - 5.0).max(0.0);
+            faults.push((v.id, false, until.clone()));
             let cost = if warranted.contains(&v.id) { 0 } else { cost };
             repairs.push((cost, format!("{} {}", v.number, v.name)));
             report.notes.push(Note::Breakdown { number: v.number.clone(), until, cost });
@@ -1055,6 +1059,9 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     for (cost, text) in repairs {
         c.book(BookingKind::Repair, -cost, text, false);
     }
+    for (id, accident, until) in faults {
+        super::crew::log_fault(c, id, if accident { super::crew::ACCIDENT } else { super::crew::BREAKDOWN }, &until);
+    }
     // (a dealer's free first service pays out when the night does it, as the workshop's does)
     for id in serviced {
         super::dealer::credit_free_service(c, id);
@@ -1064,6 +1071,8 @@ pub fn close_day_with(c: &mut Company, tours: Vec<TourOfDay>, unassigned: &[(Str
     let paid = super::pay::day(c, &date, &pieces);
     (report.paid_hours, report.overtime_hours, report.guaranteed_hours, report.driver_wages) = (paid.hours, paid.overtime, paid.guaranteed, paid.cost);
     report.staff = staff::after_day(c, &worked, &mut rng);
+    // (the day's handover notes go, what the crew asked for that is over: `crew::night`)
+    super::crew::night(c, &date);
 
     // 8. the month's end
     if dates::last_of_month(&date) {
