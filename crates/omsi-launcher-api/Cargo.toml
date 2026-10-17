@@ -47,4 +47,4 @@ anyhow.workspace = true
 image.workspace = true
 # (the add-on plugin's Lua judgement of a trip held against the company's: `omsihub/addon.rs`;
 # the same Lua as openOMSI's plugin runtime)
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
+mlua = { version = "0.12", features = ["lua54", "vendored"] }

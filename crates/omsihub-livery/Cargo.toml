@@ -14,7 +14,7 @@ serde_json.workspace = true
 sha2.workspace = true
 ab_glyph.workspace = true
 # shapes, outlines and SVG pictures rasterised (as omsi-ui does its icons)
-resvg = { version = "0.45", default-features = false }
+resvg = { version = "0.48", default-features = false }
 omsi-cfg = { path = "../omsi-cfg" }
 omsi-launcher-core = { path = "../omsi-launcher-core" }
 omsi-model = { path = "../omsi-model" }
