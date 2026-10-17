@@ -476,6 +476,10 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
             } else if t > 0.01 {
                 ui.p().rounded(row, 8.0, ROW_HOT.alpha(ROW_HOT.0[3] * t));
             }
+            // (the keyboard's or the gamepad's line: a bar of the accent, as openOMSI's rows)
+            if lit(k) {
+                ui.p().rounded(Rect::new(row.x, row.y + 8.0, 3.0, row.h - 16.0), 1.5, accent());
+            }
             let translated = omsi_ui::tr(label);
             let (text, more) = plain(&translated);
             let ink = if open { INK } else { INK_2.mix(INK, t) };
@@ -491,7 +495,7 @@ fn panel_draw(ui: &mut Ui, m: &Menu, rows: &[(usize, &'static str, &'static str,
             ui.text_in(text, Rect::new(row.x + 42.0, row.y, (right - row.x - 48.0).max(10.0), row.h), 14.0, Weight::Medium, ink, Align::Left);
             y += ROW_H;
         }
-        y - view.y + 4.0
+        y - view.y
     });
     if let (Some(y), true) = (sel_y, m.kbd) {
         ui.scroll_to("pause-rail", y, ROW_H, area.h);
