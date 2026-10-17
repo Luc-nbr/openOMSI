@@ -531,6 +531,8 @@ fn a_message_comes_with_a_card_and_an_accepted_short_turn_turns_the_duty_back() 
     let reports = ReportReader::default().read_new(&dir);
     assert!(reports.iter().any(|r| r.is_trip() && r.how == "short_turn" && r.trip == 1), "{reports:?}");
     assert!(!reports.iter().any(|r| r.kind == "duty_end"), "{reports:?}");
+}
+
 /// A company's duty with its crew: signing on at the depot at 07:50, line 5 to Rathaus, a break
 /// there, back, and handing the bus over at Rathaus at 09:20.
 fn crew() -> bridge::Crew {
@@ -559,6 +561,58 @@ fn the_duty_strip_shows_the_duty_and_takes_the_notes_and_the_walk_around() {
     install::install(&plugins).unwrap();
     let dir = install::plugin_dir(&plugins);
     bridge::write_assignment(&dir, &Assignment { auto_start: false, crew: Some(crew()), ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut game = Game::default();
+    for _ in 0..3 {
+        ps.frame(&mut game);
+    }
+    // at 08:00 (the game's clock): on line 5, the break at 08:20, the relief at 09:20, the change
+    let strip = panel_text(&ps, "omsihub_strip").expect("the duty strip");
+    for want in ["Line 5 to Rathaus until 08:20", "Next break", "Rathaus  08:20 · in 20 min", "Next relief", "Zoo  09:20 · in 1 h 20 min", "End of duty", "Overtime today: 25 min", "Leave a note", "Defect check"] {
+        assert!(strip.contains(want), "{want}: {strip}");
+    }
+    // the note left on the bus, as a card at sign-on
+    assert!(ps.ui.borrow().toasts().iter().any(|t| t.text == "Bus 101: A door sticks"));
+    // a note for the next driver: a template and a word of one's own
+    game.events = vec![ui("ui_click", &["omsihub_strip", "strip_note"])];
+    ps.frame(&mut game);
+    game.events = vec![tick("ui_change", "omsihub_strip", "strip_tpl_door_sticks", true), ui("ui_change", &["omsihub_strip", "strip_note_text", "rear door"]), ui("ui_click", &["omsihub_strip", "strip_note_send"])];
+    ps.frame(&mut game);
+    // the walk-around at sign-off: the tyres ticked
+    game.events = vec![ui("ui_click", &["omsihub_strip", "strip_check"])];
+    ps.frame(&mut game);
+    assert!(panel_text(&ps, "omsihub_strip").unwrap().contains("Walk-around check of bus 101"));
+    game.events = vec![tick("ui_change", "omsihub_strip", "strip_chk_tyres", true), ui("ui_click", &["omsihub_strip", "strip_chk_send"])];
+    ps.frame(&mut game);
+    game.events.clear();
+    ps.frame(&mut game);
+    let reports = ReportReader::default().read_new(&dir);
+    let note = reports.iter().find(|r| r.kind == "note").expect("the note reported");
+    assert_eq!((note.template.as_str(), note.text.as_str(), note.bus_id, note.issued), ("door_sticks", "rear door", 7, issued()));
+    let defect = reports.iter().find(|r| r.kind == "defect").expect("the defect reported");
+    assert_eq!((defect.defect.as_str(), defect.bus_id), ("tyres", 7));
+    assert!(ps.ui.borrow().toasts().iter().any(|t| t.text.contains("reported to the workshop")));
+}
+
+#[test]
+fn the_duty_strip_stays_away_from_a_drive_of_ones_own_and_when_switched_off() {
+    let plugins = plugins_dir("strip-off");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, crew: Some(bridge::Crew { strip: Some(false), ..crew() }), ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let mut game = Game::default();
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    assert!(panel_text(&ps, "omsihub_strip").is_none());
+    // (no crew: a drive without the company's duty)
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, duty: String::new(), crew: Some(crew()), ..assignment() }).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    assert!(panel_text(&ps, "omsihub_strip").is_none());
+}
+
 /// The on-time card: where the bus is goes to Omsi-Hub, Omsi-Hub's brief comes back - the
 /// company's view of the delay, the headway, the connection to wait for, the closed stop ahead -
 /// its alerts are shown once, the closed stops go to the navigator, and the card can be closed
@@ -617,53 +671,10 @@ fn the_on_time_card_shows_the_brief_and_tells_its_alerts_once() {
     for _ in 0..3 {
         ps.frame(&mut game);
     }
-    // at 08:00 (the game's clock): on line 5, the break at 08:20, the relief at 09:20, the change
-    let strip = panel_text(&ps, "omsihub_strip").expect("the duty strip");
-    for want in ["Line 5 to Rathaus until 08:20", "Next break", "Rathaus  08:20 · in 20 min", "Next relief", "Zoo  09:20 · in 1 h 20 min", "End of duty", "Overtime today: 25 min", "Leave a note", "Defect check"] {
-        assert!(strip.contains(want), "{want}: {strip}");
-    }
-    // the note left on the bus, as a card at sign-on
-    assert!(ps.ui.borrow().toasts().iter().any(|t| t.text == "Bus 101: A door sticks"));
-    // a note for the next driver: a template and a word of one's own
-    game.events = vec![ui("ui_click", &["omsihub_strip", "strip_note"])];
-    ps.frame(&mut game);
-    game.events = vec![tick("ui_change", "omsihub_strip", "strip_tpl_door_sticks", true), ui("ui_change", &["omsihub_strip", "strip_note_text", "rear door"]), ui("ui_click", &["omsihub_strip", "strip_note_send"])];
-    ps.frame(&mut game);
-    // the walk-around at sign-off: the tyres ticked
-    game.events = vec![ui("ui_click", &["omsihub_strip", "strip_check"])];
-    ps.frame(&mut game);
-    assert!(panel_text(&ps, "omsihub_strip").unwrap().contains("Walk-around check of bus 101"));
-    game.events = vec![tick("ui_change", "omsihub_strip", "strip_chk_tyres", true), ui("ui_click", &["omsihub_strip", "strip_chk_send"])];
-    ps.frame(&mut game);
-    game.events.clear();
-    ps.frame(&mut game);
-    let reports = ReportReader::default().read_new(&dir);
-    let note = reports.iter().find(|r| r.kind == "note").expect("the note reported");
-    assert_eq!((note.template.as_str(), note.text.as_str(), note.bus_id, note.issued), ("door_sticks", "rear door", 7, issued()));
-    let defect = reports.iter().find(|r| r.kind == "defect").expect("the defect reported");
-    assert_eq!((defect.defect.as_str(), defect.bus_id), ("tyres", 7));
-    assert!(ps.ui.borrow().toasts().iter().any(|t| t.text.contains("reported to the workshop")));
-}
-
-#[test]
-fn the_duty_strip_stays_away_from_a_drive_of_ones_own_and_when_switched_off() {
-    let plugins = plugins_dir("strip-off");
-    install::install(&plugins).unwrap();
-    let dir = install::plugin_dir(&plugins);
-    bridge::write_assignment(&dir, &Assignment { auto_start: false, crew: Some(bridge::Crew { strip: Some(false), ..crew() }), ..assignment() }).unwrap();
-    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
-    let mut game = Game::default();
-    ps.frame(&mut game);
-    ps.frame(&mut game);
-    assert!(panel_text(&ps, "omsihub_strip").is_none());
-    // (no crew: a drive without the company's duty)
-    bridge::write_assignment(&dir, &Assignment { auto_start: false, duty: String::new(), crew: Some(crew()), ..assignment() }).unwrap();
-    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
-    ps.frame(&mut game);
-    ps.frame(&mut game);
-    assert!(panel_text(&ps, "omsihub_strip").is_none());
     assert!(!ps.ui.borrow().panels().iter().any(|p| p.id == "omsihub_ontime"));
     assert!(!dir.join(bridge::DATA_DIR).join("live.json").exists());
+}
+
 #[test]
 fn the_board_carries_the_company_s_parts_and_service_control_speaks() {
     use omsihub_plugin::bridge::{ContractNote, ControlNote, Fare, SheetRow};
