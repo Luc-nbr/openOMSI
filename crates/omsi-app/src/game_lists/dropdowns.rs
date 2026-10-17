@@ -190,7 +190,7 @@ pub(crate) fn dropdown_apply(app: &mut App, action: &str) {
 }
 
 /// The session's weather as the player reads it (its name in the interface's language).
-pub(super) fn weather_shown(app: &App) -> String {
+pub(crate) fn weather_shown(app: &App) -> String {
     match app.args.weather.as_deref() {
         Some(p) => {
             let p = p.replace('\\', "/");
