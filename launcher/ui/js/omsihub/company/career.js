@@ -6,6 +6,7 @@
 // workshop's jobs, the rankings of the map, and the statistics of the trips driven.
 
 import { html, setUi, ui, act, useView, goTab, Icon, Btn, Section, Figure, Plate, IconBtn, Tag, T, fill } from './kit.js';
+import { openDutyCard } from './dutycard.js';
 import { RepairGame } from './repair.js';
 import { Bar } from './overview.js';
 import { Card, Empty, Tabs, Track } from './pages-a.js';
@@ -70,6 +71,7 @@ function Duties({ b }) {
                 <div class="what"><div><${Plate} p=${d.plate} h=${24} /><span class="co-pg-cut">${d.words}</span>${k === 0 && html`<${Tag} text=${b.up} tone="accent" />`}</div>
                   <span class=${'co-pg-cut t-' + d.bus_tone}><${Icon} name="directions_bus" size=${16} />${d.bus}</span></div>
                 ${b.easy && html`<${IconBtn} icon="close" size=${15} title=${b.back_tip} onClick=${() => act('give_back', { duty: d.duty })} />`}
+                <${IconBtn} icon="print_receipt" size=${17} title=${b.print} onClick=${() => openDutyCard(d.duty)} />
                 <${Btn} kind=${k === 0 ? 'primary' : ''} icon="play_arrow" label=${b.drive} title=${b.drive_tip} style="width:120px;height:38px;padding:0" onClick=${() => act('drive_duty', { duty: d.duty, from: 6 })} />
               </div>`,
             )}</div>`}

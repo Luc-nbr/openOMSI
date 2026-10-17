@@ -628,6 +628,8 @@ fn view() -> Value {
         "online": tr("Online"), "offline": tr("Offline"), "connected": tr("Connected"), "reconnecting": tr("Reconnecting…"),
         "ended_title": tr("The session ended for you"), "ended_text": tr("Ask the boss for a new code to join again."),
         "role_changed": tr("Your role is now %{role}."),
+        // (his own duty's card, asked of the boss's launcher: `company::dutycard::relayed`)
+        "print": tr("Print duty card"),
     });
     let g = joined();
     let Some(j) = g.as_ref() else {

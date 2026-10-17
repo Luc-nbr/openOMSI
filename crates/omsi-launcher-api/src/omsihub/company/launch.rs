@@ -170,6 +170,8 @@ pub fn view(s: &mut Session, _args: &Value) -> Value {
         "name": c.name, "mark": super::mark_json(&c), "caps": tr("Company duty · fixed by the planning"),
         "title": (!sheet.number.is_empty()).then(|| format!("{} {}  ·  {} {}  ·  {} {}", tr("Line"), sheet.number, tr("Tour"), sheet.duty.tour, tr("Duty"), sheet.duty.duty + 1)),
         "back": tr("Back"), "to": tr(to_planning_label(&c)), "tiles": tiles,
+        // (the duty card of it, printed: `dutycard`)
+        "duty": sheet.duty, "print": tr("Print duty card"),
         "duty_caps": tr("The duty as planned").to_uppercase(), "rows": rows, "no_rows": tr("Nothing to show: the planning no longer has this duty."),
         "colour": format!("#{:02x}{:02x}{:02x}", colour[0], colour[1], colour[2]),
         "bus_caps": tr("Bus and depot").to_uppercase(), "bus": bus_rows, "bus_note": tr("The planning gives the duty its bus, in the company's livery: it is not chosen here."),

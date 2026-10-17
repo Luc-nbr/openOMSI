@@ -46,7 +46,7 @@ const SETTINGS: Need = Any(&[Perm::Settings]);
 const FLEET: Need = Any(&[Perm::Spend, Perm::Plans, Perm::Service]);
 /// RosterFlow and the planning seen (changed: `PLANS`, a timetable `LINES`): who plans, runs the
 /// lines or the day's service, or gives and approves the players' duties.
-const RF_VIEW: Need = Any(&[Perm::Plans, Perm::Lines, Perm::Service, Perm::Assign, Perm::Approve]);
+pub const RF_VIEW: Need = Any(&[Perm::Plans, Perm::Lines, Perm::Service, Perm::Assign, Perm::Approve]);
 /// A duty given to a player of the session.
 const ASSIGN: Need = Any(&[Perm::Assign]);
 
@@ -103,6 +103,9 @@ fn view_need(view: &str) -> Need {
         "inbox" | "sandbox" | "settings" => SETTINGS,
         // (a question asked before an action: the action is checked)
         "confirm" => Member,
+        // (a duty card, read-only: a player's own duty's whatever his role, another's for who
+        // may see the planning - `company::dutycard::relayed` checks which)
+        "dutycard" => Member,
         _ => Never,
     }
 }
@@ -474,6 +477,8 @@ mod tests {
         assert!(ask("co_more_view", json!({ "view": "fleetmap" }), &driver));
         assert!(!ask("co_view", json!({ "view": "money" }), &driver));
         assert!(!ask("co_more_view", json!({ "view": "planning" }), &driver));
+        // (his duty card: asked of the boss's launcher, which shows him his own duties')
+        assert!(ask("co_view", json!({ "view": "dutycard" }), &driver));
         // a planner plans and runs the service, but sees no money and buys nothing
         assert!(ask("co_more_act", json!({ "act": "pe_save" }), planner));
         assert!(ask("co_act", json!({ "act": "ops_apply" }), planner));

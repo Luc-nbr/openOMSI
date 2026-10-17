@@ -35,6 +35,7 @@ pub mod dates;
 pub mod day;
 pub mod dealer;
 pub mod duty_launch;
+pub mod dutycard;
 pub mod depot;
 pub mod economy;
 // (the economy's parameters, from UK operator data: Realistic at factor 1.0)

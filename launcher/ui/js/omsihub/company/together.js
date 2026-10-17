@@ -14,6 +14,7 @@ import { html, useEffect, useState, tr, setCo, cmd, freshCo, goTab, Icon, Mark, 
 import { togetherOn, blockedLabel } from './gate.js';
 import { usePoll, run, Chip, Face, RoleBadge, Stats, RoleEditor, MultiplayerDialog } from './multiplayer.js';
 import { SessionEnded } from './session.js';
+import { openDutyCard } from './dutycard.js';
 
 /** The Multiplayer page's tab (`company::TOGETHER_TAB`). */
 export const TOGETHER_TAB = 18;
@@ -79,8 +80,12 @@ async function driveDuty(d, name = 'tg_drive') {
   await run(name, { duty: d.duty, base });
 }
 
-/** A duty of the boss's day: what it is, who has it, what can be done with it. */
-function DutyRow({ d, again }) {
+/** The duties a player's card is printed of: his own (`company::dutycard::relayed`). */
+const PRINTED = ['mine', 'driving', 'done', 'late'];
+
+/** A duty of the boss's day: what it is, who has it, what can be done with it (`print`: the
+ * words of its duty card's button, for the player's own). */
+function DutyRow({ d, again, print }) {
   const act = async (a) => {
     if (a.act === 'drive') await driveDuty(d);
     else if (a.act === 'take_back') await driveDuty(d, 'tg_take_back');
@@ -91,7 +96,7 @@ function DutyRow({ d, again }) {
     <${Chip} number=${d.number} colour=${d.colour} />
     <div class="what"><b>${d.times}</b><span class="cut">${d.route}</span><span class="dim cut">${d.facts}</span></div>
     <span class=${'state cut t-' + d.tone}>${d.state}</span>
-    <span class="acts">${d.acts.map((a) => html`<${Btn} kind=${a.kind} icon=${a.icon} label=${a.label} onClick=${() => act(a)} />`)}</span>
+    <span class="acts">${print && PRINTED.includes(d.key) && html`<${Btn} icon="print_receipt" title=${print} onClick=${() => openDutyCard(d.duty, { relay: true })} />`}${d.acts.map((a) => html`<${Btn} kind=${a.kind} icon=${a.icon} label=${a.label} onClick=${() => act(a)} />`)}</span>
   </div>`;
 }
 
@@ -162,7 +167,7 @@ function MyWork({ v, ask }) {
   return html`<div class="tg-cols">
     <div class="co-scroll tg-main">
       <section class="co-section"><div class="co-caps">${w.next_caps}</div><${NextUp} d=${v.next} w=${w} again=${ask} /></section>
-      <section class="co-section"><div class="co-caps">${w.mine_caps}</div>${v.mine.length ? v.mine.map((d) => html`<${DutyRow} d=${d} again=${ask} />`) : html`<p class="dim">${w.no_mine}</p>`}</section>
+      <section class="co-section"><div class="co-caps">${w.mine_caps}</div>${v.mine.length ? v.mine.map((d) => html`<${DutyRow} d=${d} again=${ask} print=${w.print} />`) : html`<p class="dim">${w.no_mine}</p>`}</section>
       ${v.results.length > 0 && html`<section class="co-section"><div class="co-caps">${w.results_caps}</div>
         ${v.results.map((r) => html`<div class="tg-result"><b class="cut">${r.title}</b><span class="dim">${r.text}</span></div>`)}</section>`}
     </div>

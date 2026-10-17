@@ -20,6 +20,7 @@ pub mod linehof;
 pub mod lines;
 pub mod mods;
 pub mod owndepot;
+pub mod qr;
 pub mod service;
 pub mod ttstore;
 

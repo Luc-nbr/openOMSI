@@ -1,0 +1,85 @@
+/* The duty card (`js/omsihub/company/dutycard.js`): its preview dialog in the launcher's look,
+   and the slip as a receipt printer prints it - black on white, a monospaced type, no colours,
+   at the paper's real width (the mm are the printer's). Printing shows the slip alone. */
+
+.co-dp-scrim { position: fixed; inset: 0; z-index: 1000; background: var(--hub-scrim, rgba(0, 0, 0, 0.62)); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.co-dp-dialog { width: min(980px, 100%); height: min(860px, 100%); background: var(--hub-panel); color: var(--hub-text); border-radius: var(--hub-r-sheet, 14px); box-shadow: inset 0 0 0 1px var(--hub-edge), 0 6px 52px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; overflow: hidden; }
+.co-dp-head { height: 62px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
+.co-dp-head .hub-icon { color: var(--hub-accent); }
+.co-dp-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co-dp-body { flex: 1; min-height: 0; display: flex; gap: 18px; padding: 0 24px; }
+.co-dp-opts { flex: 0 0 250px; display: flex; flex-direction: column; gap: 10px; overflow: auto; padding-bottom: 12px; }
+.co-dp-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hub-text-dim); margin-top: 6px; }
+.co-dp-hint { margin: 8px 0 0; font-size: 12px; color: var(--hub-text-soft); }
+.co-dp-preview { flex: 1; min-width: 0; overflow: auto; background: var(--hub-ground); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--hub-edge); padding: 20px; display: flex; justify-content: center; align-items: flex-start; }
+.co-dp-wait { color: var(--hub-text-soft); margin: 40px 0; }
+.co-dp-actions { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 24px 20px; }
+.co-dp-grow { flex: 1; }
+
+/* the slip */
+.co-dp-slip { box-sizing: border-box; flex: none; background: #fff; color: #000; font-family: "DejaVu Sans Mono", "Consolas", "Lucida Console", "Courier New", monospace; font-size: 9pt; line-height: 1.3; box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35); overflow-wrap: anywhere; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.co-dp-slip.co-dp-p58 { font-size: 7.5pt; }
+.co-dp-slip.co-dp-pa4 { font-size: 10pt; }
+.co-dp-slip b { font-weight: 700; }
+.co-dp-slip em { font-style: normal; }
+.co-dp-headc { display: flex; flex-direction: column; align-items: center; gap: 1.5mm; text-align: center; }
+.co-dp-logo { display: block; height: auto; image-rendering: pixelated; }
+.co-dp-mark { border: 0.6mm solid #000; padding: 1mm 3mm; font-weight: 700; font-size: 1.6em; letter-spacing: 0.08em; }
+.co-dp-name { font-weight: 700; font-size: 1.25em; text-transform: uppercase; letter-spacing: 0.04em; }
+.co-dp-title { text-align: center; font-weight: 700; font-size: 1.15em; letter-spacing: 0.05em; }
+.co-dp-date { text-align: center; }
+.co-dp-caps { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.9em; margin-bottom: 0.5mm; }
+.co-dp-rule { border-top: 0.3mm dashed #000; margin: 1.6mm 0; }
+.co-dp-rule.double { border-top: 0.6mm double #000; height: 0.6mm; }
+.co-dp-rule.cut { border-top: 0.5mm solid #000; margin: 2.4mm 0 1.6mm; }
+.co-dp-rule.dots { border-top-style: dotted; }
+.co-dp-pair { display: flex; gap: 2mm; align-items: baseline; }
+.co-dp-pair > span { flex: 1; min-width: 0; }
+.co-dp-pair > b { text-align: right; }
+.co-dp-pair > i { font-style: normal; flex: 0 1 45%; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-dp-piece { display: flex; flex-direction: column; margin-bottom: 1mm; }
+.co-dp-row { display: flex; gap: 2mm; align-items: baseline; }
+.co-dp-row.strong { font-weight: 700; }
+.co-dp-t { flex: 0 0 auto; min-width: 5.2ch; font-variant-numeric: tabular-nums; }
+.co-dp-t small { font-size: 0.85em; margin-right: 0.6ch; }
+.co-dp-w { flex: 1; min-width: 0; }
+.co-dp-w em { display: block; font-weight: 400; }
+.co-dp-line { display: inline-block; border: 0.3mm solid #000; padding: 0 0.6ch; }
+.co-dp-trip { margin: 0.8mm 0; }
+.co-dp-trip.co-dp-dead .co-dp-w > span:first-child { text-transform: uppercase; font-size: 0.9em; letter-spacing: 0.04em; }
+.co-dp-ibis { display: flex; flex-wrap: wrap; column-gap: 1.6ch; margin: 0.4mm 0 0.6mm 7.2ch; padding: 0.4mm 1ch; border: 0.3mm solid #000; }
+.co-dp-ibis > span:first-child { font-weight: 700; }
+.co-dp-ibis .co-dp-dtext { flex-basis: 100%; }
+.co-dp-stops { margin-left: 7.2ch; }
+.co-dp-stops > div { display: flex; gap: 2mm; }
+.co-dp-stops > div.tp { font-weight: 700; }
+.co-dp-stops > div > span:last-child { flex: 1; min-width: 0; }
+.co-dp-foot { display: flex; flex-direction: column; align-items: center; gap: 1.2mm; text-align: center; }
+.co-dp-foot .co-dp-pair { width: 100%; }
+.co-dp-qr { display: block; }
+
+/* nothing cut in two where a page ends (A4) */
+.co-dp-trip, .co-dp-foot, .co-dp-cols > div, .co-dp-stops > div { break-inside: avoid; }
+.co-dp-piece { break-after: avoid; }
+
+/* A4: the sheet's width, the driver and the codes beside the times, the stops in two columns */
+.co-dp-pa4 .co-dp-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10mm; }
+.co-dp-pa4 .co-dp-r2 { display: none; }
+.co-dp-pa4 .co-dp-stops.many { columns: 2; column-gap: 8mm; }
+.co-dp-pa4 .co-dp-foot { display: grid; grid-template-columns: 1fr auto; column-gap: 8mm; justify-items: start; align-items: center; text-align: left; }
+.co-dp-pa4 .co-dp-foot .co-dp-pair { width: auto; }
+.co-dp-pa4 .co-dp-foot .co-dp-qr { grid-column: 2; grid-row: 1 / span 3; }
+
+/* printing: the slip alone, at its width, black on white */
+@media print {
+  html.co-dp-printing { color-scheme: light !important; }
+  html.co-dp-printing, html.co-dp-printing body { height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; margin: 0 !important; padding: 0 !important; }
+  html.co-dp-printing body > *:not(#co-dp-host) { display: none !important; }
+  html.co-dp-printing .co-dp-scrim { position: static; inset: auto; padding: 0; background: none; display: block; }
+  html.co-dp-printing .co-dp-dialog { width: auto; height: auto; box-shadow: none; border-radius: 0; background: none; overflow: visible; display: block; }
+  html.co-dp-printing .co-dp-head, html.co-dp-printing .co-dp-opts, html.co-dp-printing .co-dp-actions { display: none !important; }
+  html.co-dp-printing .co-dp-body { display: block; padding: 0; }
+  html.co-dp-printing .co-dp-preview { display: block; overflow: visible; padding: 0; background: none; box-shadow: none; border-radius: 0; }
+  html.co-dp-printing .co-dp-slip { box-shadow: none; margin: 0; }
+  html.co-dp-printing .co-dp-slip.co-dp-pa4 { margin: 0 auto; }
+}

@@ -10,6 +10,7 @@ import { RouteMap } from '../../routemap.js';
 import { dark } from '../theme.js';
 import { mapColors } from '../steps/mapbehind.js';
 import { html, useEffect, act, cmd, useView, Icon, Mark, Select, inkOn, rgbOf } from './kit.js';
+import { openDutyCard } from './dutycard.js';
 
 /** The duty's route as the game-drawn launcher draws it here (`duty_launch::route_map`): the
  * roads grey on the night, white on the light look's ground; the route in the accent. */
@@ -58,6 +59,7 @@ export function LaunchPage() {
       <${Mark} mark=${v.mark} size=${48} />
       <div class="who"><span class="caps"><${Icon} name="lock" size=${13} />${v.caps}</span>
         <div><b>${v.name}</b>${v.title && html`<span>${v.title}</span>`}</div></div>
+      ${v.duty && html`<${RfButton} label=${v.print} style="width:170px" onClick=${() => openDutyCard(v.duty)} />`}
       <${RfButton} label=${v.to} style="width:190px" onClick=${fix} />
       <${RfButton} label=${v.back} style="width:110px" onClick=${close} />
     </div>

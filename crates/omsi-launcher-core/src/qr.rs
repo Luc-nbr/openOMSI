@@ -1,5 +1,6 @@
-//! QR codes for pairing a phone or tablet: the page's address with the pairing code in it,
-//! scanned with the camera, opens the page and pairs at once (nothing to type).
+//! QR codes: for pairing a phone or tablet (the game's companion: the page's address with the
+//! pairing code in it, scanned with the camera, opens the page and pairs at once - nothing to
+//! type), and on the bus company's duty card (its duty, `company::dutycard`).
 //!
 //! A compact encoder of its own rather than a crate: one kind of content (a short address,
 //! byte mode), versions 1 to 10 (up to 213 bytes at level M, an address needs some forty),
@@ -10,7 +11,7 @@
 
 /// How much of the code may be damaged and still read: about 7 % (L) or 15 % (M).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Ecc {
+pub enum Ecc {
     L,
     M,
 }
@@ -34,7 +35,7 @@ impl Ecc {
 
 /// A QR code: its side in modules and the modules row by row (true: dark).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Qr {
+pub struct Qr {
     pub size: usize,
     pub modules: Vec<bool>,
 }
@@ -42,22 +43,22 @@ pub(crate) struct Qr {
 impl Qr {
     /// The version (1-10), from the side.
     #[cfg(test)]
-    pub(crate) fn version(&self) -> usize {
+    pub fn version(&self) -> usize {
         (self.size - 17) / 4
     }
 
     #[cfg(test)]
-    pub(crate) fn dark(&self, x: usize, y: usize) -> bool {
+    pub fn dark(&self, x: usize, y: usize) -> bool {
         x < self.size && y < self.size && self.modules[y * self.size + x]
     }
 
     /// The modules as a string of `0` and `1`, row by row (what the page draws from).
-    pub(crate) fn bits(&self) -> String {
+    pub fn bits(&self) -> String {
         self.modules.iter().map(|&d| if d { '1' } else { '0' }).collect()
     }
 }
 
-pub(crate) const MAX_VERSION: usize = 10;
+pub const MAX_VERSION: usize = 10;
 
 /// Error correction codewords per block, by level (L, M) and version (index 0 unused).
 const ECC_PER_BLOCK: [[usize; MAX_VERSION + 1]; 2] = [[0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18], [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26]];
@@ -83,25 +84,25 @@ fn data_codewords(version: usize, ecc: Ecc) -> usize {
 }
 
 /// Bytes of content that fit in byte mode.
-pub(crate) fn capacity(version: usize, ecc: Ecc) -> usize {
+pub fn capacity(version: usize, ecc: Ecc) -> usize {
     let count_bits = if version < 10 { 8 } else { 16 };
     (data_codewords(version, ecc) * 8 - 4 - count_bits) / 8
 }
 
 /// `text` as a QR code at `ecc`, in the smallest version it fits, with the mask the
 /// standard's penalty rules choose. None when it does not fit in version 10.
-pub(crate) fn encode(text: &str, ecc: Ecc) -> Option<Qr> {
+pub fn encode(text: &str, ecc: Ecc) -> Option<Qr> {
     encode_with(text.as_bytes(), ecc, None)
 }
 
 /// The pairing address as a QR code: at level M (a phone's camera reads it off a screen at
 /// an angle, in a reflection), at L when an address that long (IPv6) does not fit so.
-pub(crate) fn encode_address(url: &str) -> Option<Qr> {
+pub fn encode_address(url: &str) -> Option<Qr> {
     encode(url, Ecc::M).or_else(|| encode(url, Ecc::L))
 }
 
 /// The same with a given mask (0-7), or the best one.
-pub(crate) fn encode_with(data: &[u8], ecc: Ecc, mask: Option<u8>) -> Option<Qr> {
+pub fn encode_with(data: &[u8], ecc: Ecc, mask: Option<u8>) -> Option<Qr> {
     let version = (1..=MAX_VERSION).find(|&v| data.len() <= capacity(v, ecc))?;
     let codewords = add_ecc(&data_bits(data, version, ecc), version, ecc);
     let mut q = Grid::new(version);
