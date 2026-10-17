@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn the_driver_s_notes_and_defects_go_to_the_company_of_the_duty() {
-        let a = Assigned { issued: 7, driver: "Luc".into(), company: "stadtbus".into(), ..Default::default() };
+        let a = Assigned { issued: 7, driver: "Luc".into(), company_id: "stadtbus".into(), ..Default::default() };
         let r = |kind: &str| bridge::Report { kind: kind.into(), issued: 7, bus_id: 4, ..Default::default() };
         let note = bridge::Report { template: "door_sticks".into(), text: "rear".into(), ..r("note") };
         let (company, o) = crew_order(&note, &a).unwrap();
@@ -558,13 +558,13 @@ mod tests {
         let fault = bridge::Report { defect: "other".into(), minutes: Some(30.0), ..r("fault") };
         assert!(matches!(crew_order(&fault, &a).map(|x| x.1), Some(core::company::remote::Order::Defect { fault: true, ref text, .. }) if text == core::company::crew::COLLISION));
         // not of a company's duty, no bus, an unknown check, a trip: nothing
-        assert!(crew_order(&note, &Assigned { company: String::new(), ..a.clone() }).is_none());
+        assert!(crew_order(&note, &Assigned { company_id: String::new(), ..a.clone() }).is_none());
         assert!(crew_order(&bridge::Report { bus_id: 0, ..note.clone() }, &a).is_none());
         assert!(crew_order(&bridge::Report { defect: "engine".into(), ..r("defect") }, &a).is_none());
         assert!(crew_order(&r("trip"), &a).is_none());
         // (an older launcher's choice reads, without the company)
         let old: Assigned = serde_json::from_str(r#"{"issued":3,"driver":"Luc","map":"m","bus":"b"}"#).unwrap();
-        assert_eq!(old.company, "");
+        assert_eq!((old.company.as_str(), old.company_id.as_str()), ("", ""));
     }
 
     #[test]

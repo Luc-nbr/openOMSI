@@ -253,7 +253,7 @@ effect. On Android, `openOMSI/env.txt` holds `NAME=value` lines that are set bef
 | `OMSI_TOBII_SECS` | num | 8 | test | input | Tests: how long the Tobii tracker is recorded. |
 | `OMSI_TOUCH` | bool | off | use | app | The on-screen touch controls on a computer. |
 | `OMSI_TRIGGER_ALL` | bool | off | use | app | Check: fire every [mouseevent] of the model and compare the variables before and after. |
-| `OMSI_UI_PREVIEW` | text | target/ui-preview.png | use | app, plugin-ui | Plugin UI preview test: the picture's path. |
+| `OMSI_UI_PREVIEW` | text | target/ui-preview.png | use | app, plugin-ui, omsihub-game | Plugin UI preview test: the picture's path. |
 | `OMSI_VEHICLES` | text | - | test | launcher-core | Tests: a game's Vehicles folder the ignored bus-category survey reads (only read). |
 | `OMSI_WARM_FRAMES` | num | 0 | use | app | Offscreen: frames drawn before the picture. |
 | `OMSI_WETNESS` | num | weather | use | app, scene | Ground wetness the picture is drawn with. |
