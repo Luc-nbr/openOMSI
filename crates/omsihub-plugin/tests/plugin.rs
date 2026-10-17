@@ -245,6 +245,8 @@ fn the_plugin_checks_every_function_the_add_on_negotiates() {
     let mut in_rust: Vec<&str> = compat::FEATURES.iter().flat_map(|f| f.needs.iter().copied()).collect();
     in_lua.sort();
     in_rust.sort();
+    // (a function two features need is looked up once)
+    in_rust.dedup();
     assert_eq!(in_lua, in_rust);
     // (and openOMSI's API has each of them)
     for n in in_rust {
@@ -433,4 +435,70 @@ fn the_display_font_goes_on_the_drive_s_bus_and_the_editor_opens() {
     let mut other = Game::default();
     ps.frame(&mut other);
     assert!(other.asked.is_empty(), "{:?}", other.asked);
+}
+
+/// The control room's inbox for the duty of `assignment()`: a message read, an instruction (a
+/// short-turn on the first trip) to accept.
+fn inbox() -> bridge::Inbox {
+    let msg = |id: u64, priority: &str, text: &str, action: Option<bridge::InboxAction>| bridge::InboxMsg { id, time: "08:01".into(), from: "Dispatcher".into(), priority: priority.into(), text: text.into(), action, state: "sent".into(), state_label: "Sent".into(), ..bridge::InboxMsg::default() };
+    let turn = bridge::InboxAction { kind: "short_turn".into(), departure: 28_830.0, part: 0.4, label: "Short-turn".into(), ..bridge::InboxAction::default() };
+    bridge::Inbox {
+        line: "10".into(),
+        tour: "2".into(),
+        // (the newest first)
+        messages: vec![msg(2, "instruction", "Short-turn on the 08:00 trip", Some(turn)), msg(1, "urgent", "You are running 9 min late", None)],
+        quick: vec![bridge::Choice { key: "breakdown".into(), label: "Breakdown".into(), icon: "car_repair".into() }],
+        replies: vec![bridge::Choice { key: "understood".into(), label: "Understood".into(), icon: String::new() }],
+        ..bridge::Inbox::default()
+    }
+}
+
+#[test]
+fn a_message_comes_with_a_card_and_an_accepted_short_turn_turns_the_duty_back() {
+    let plugins = plugins_dir("messages");
+    install::install(&plugins).unwrap();
+    let dir = install::plugin_dir(&plugins);
+    bridge::write_assignment(&dir, &Assignment { auto_start: false, ..assignment() }).unwrap();
+    bridge::write_inbox(&dir, &inbox()).unwrap();
+    let mut ps = Plugins::load(&[plugins.clone()], &HostConfig::default());
+    let first = three_stops();
+    let stop = |id: i64, name: &str, at: f64| io::Stop { id, name: name.into(), arr: at, dep: at + 30.0, pos: None, stops: true };
+    let back = io::Trip { name: "Hbf - Zoo".into(), line: "10".into(), terminus: "10 Zoo".into(), departure: 30_000.0, end: 30_600.0, stops: vec![stop(3, "Hauptbahnhof", 30_000.0), stop(2, "Markt", 30_300.0), stop(1, "Zoo", 30_600.0)] };
+    let mut game = Game { trips: vec![first.clone(), back], ..Game::default() };
+    game.duty = Some(io::Duty { line: "10".into(), tour: "2".into(), trip: 0, trips: 2, next: 1, delay: 540.0, current: first.clone(), ..io::Duty::default() });
+    for _ in 0..6 {
+        ps.frame(&mut game);
+    }
+    // each message once as a card, the urgent one too; the inbox open for the instruction
+    let toasts: Vec<String> = ps.ui.borrow().toasts().iter().map(|t| t.text.clone()).collect();
+    assert!(toasts.contains(&"You are running 9 min late".to_string()) && toasts.contains(&"Short-turn on the 08:00 trip".to_string()), "{toasts:?}");
+    let panel = panel_text(&ps, "omsihub_msgs").expect("the inbox");
+    assert!(panel.contains("msg_accept_2") && panel.contains("msg_decline_2"), "{panel}");
+    // delivered, said once each; the duty's status for the dispatcher
+    let mut replies = bridge::ReplyReader::default();
+    let got = replies.read_new(&dir);
+    assert_eq!(got.iter().filter(|r| r.kind == "delivered").map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
+    assert!(got.iter().all(|r| r.issued == issued() && r.line == "10" && !r.uid.is_empty()));
+    let st = bridge::read_status(&dir).expect("data/status.json");
+    assert_eq!((st.line.as_str(), st.trip, st.trips, st.delay, st.stops), ("10", 1, 2, Some(540.0), 3));
+    // accepted: said, and the duty turns back at Markt (the stop two fifths from its end) onto the
+    // next trip from there
+    game.events = vec![ui("ui_click", &["omsihub_msgs", "msg_accept_2"])];
+    ps.frame(&mut game);
+    game.events = vec![ui("ui_click", &["omsihub_msgs", "msg_q_breakdown"])];
+    ps.frame(&mut game);
+    game.events.clear();
+    let got = replies.read_new(&dir);
+    let kinds: Vec<(&str, u64, &str)> = got.iter().map(|r| (r.kind.as_str(), r.id, r.key.as_str())).collect();
+    assert_eq!(kinds, [("accept", 2, ""), ("quick", 0, "breakdown")]);
+    assert!(ps.ui.borrow().toasts().iter().any(|t| t.text == "Turn back at Markt"));
+    game.duty = Some(io::Duty { line: "10".into(), tour: "2".into(), trip: 0, trips: 2, next: 1, at_stop: true, delay: 540.0, current: first.clone(), ..io::Duty::default() });
+    ps.frame(&mut game);
+    ps.frame(&mut game);
+    assert_eq!(game.started.last(), Some(&("10".to_string(), "2".to_string(), 1, 1)), "{:?}", game.started);
+    assert!(game.ibis.iter().any(|x| x == "typed"));
+    // the trip turned back is reported so, the same duty not ended
+    let reports = ReportReader::default().read_new(&dir);
+    assert!(reports.iter().any(|r| r.is_trip() && r.how == "short_turn" && r.trip == 1), "{reports:?}");
+    assert!(!reports.iter().any(|r| r.kind == "duty_end"), "{reports:?}");
 }

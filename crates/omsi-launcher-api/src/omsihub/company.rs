@@ -37,6 +37,8 @@ pub mod kit;
 pub mod late;
 mod launch;
 mod lines;
+// (the control room's messages to the drivers, and theirs: docs/omsihub/MESSAGES.md)
+pub(crate) mod messages;
 mod money;
 mod ops;
 mod overview;
@@ -341,6 +343,11 @@ pub struct Session {
     /// The player's corrections of the buses' categories and regions, and the market corrected
     /// by them (`vehicles`, Beta 54).
     pub classes: vehicles::Classes,
+    /// The control room's link with the driver's devices (`messages::tick`).
+    pub msg_link: messages::Link,
+    /// The player of "Play together" a relayed command runs for (his name: the sender of the
+    /// messages he sends, `messages::send`). None: the boss himself.
+    pub sender: Option<String>,
 }
 
 /// The timetables of the company's week, read on a thread, and the plans made of them for a
@@ -635,6 +642,7 @@ fn work(s: &mut Session) {
     }
     depot_tick(s);
     dealer::tick(s);
+    messages::tick(s);
 }
 
 fn log_warn(text: &str) {
@@ -1282,9 +1290,10 @@ pub struct Viewer {
     feed_minor: bool,
     more: more::Kept,
     /// His RosterFlow (the day made, undo and redo, the Timeplan's line: `rosterflow::relayed`),
-    /// and his number in the company's session.
+    /// and his number in the company's session and his name.
     rf: super::rosterflow::Rf,
     pub guest: u32,
+    pub name: String,
 }
 
 impl Viewer {
@@ -1319,6 +1328,8 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
     }
     words::set_currency(s.company.as_ref().map(|c| c.currency).unwrap_or_default());
     v.swap(s);
+    // (what he sends goes by his name)
+    s.sender = Some(v.name.clone()).filter(|n| !n.trim().is_empty()).or_else(|| Some(format!("#{}", v.guest)));
     let r = match cmd {
         "co_tick" => Ok(super::together::relay::shell_for(shell(s), perms)),
         // (a duty card: the player's own duty's, or as his role allows - `dutycard::relayed`)
@@ -1334,6 +1345,7 @@ pub fn relayed(s: &mut Session, v: &mut Viewer, cmd: &str, args: &Value, perms: 
         c if c.starts_with("rf_") => super::rosterflow::relayed(s, &mut v.rf, v.guest, c, args, perms),
         other => Err(format!("no command {other}")),
     };
+    s.sender = None;
     v.swap(s);
     r
 }

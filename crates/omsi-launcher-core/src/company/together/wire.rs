@@ -13,7 +13,10 @@
 //! for it, `assign`
 //! / `unassign` a duty of a player (`target`), `answer` a request (`yes`), `set_role` of a
 //! player (`role`, `perms`), `kick` one (`ban`), and `page`: a page of the company's own,
-//! relayed to the boss's launcher (`page`: its command and arguments).
+//! relayed to the boss's launcher (`page`: its command and arguments). A driver answers the
+//! control room's messages to the duty his game drives (`msg_reply`: the message `msg`, the
+//! answer's key in `text`) and tells control from it (`msg_tell`: the quick button's key); the
+//! snapshot carries those messages (`Snapshot::messages`, docs/omsihub/MESSAGES.md).
 
 use super::super::duty_launch::DutyRef;
 use super::book::GuestStats;
@@ -55,6 +58,8 @@ pub struct Request {
     pub page: Value,
     /// The company's logo wanted with the answer (the player's page does not have it yet).
     pub logo: bool,
+    /// The control room's message a `msg_reply` answers.
+    pub msg: u64,
 }
 
 /// The company as the friend's page shows it.
@@ -242,6 +247,8 @@ pub struct Snapshot {
     /// (to one who may approve them).
     pub members: Vec<SnapMember>,
     pub asks: Vec<SnapAsk>,
+    /// The control room's messages of the duty the player's game drives, the newest first.
+    pub messages: Vec<super::super::messages::Msg>,
 }
 
 /// How a player's game starts on his duty (`duty_launch::Start`, which the boss's launcher works

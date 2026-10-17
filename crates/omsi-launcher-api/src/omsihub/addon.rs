@@ -64,6 +64,12 @@ pub struct Assigned {
     pub driver: String,
     pub map: String,
     pub bus: String,
+    /// A company's duty: the company's name, the duty's line (the timetable's name) and tour -
+    /// what the control room's messages go to (`company::messages`). Empty: a drive of the
+    /// player's own.
+    pub company: String,
+    pub line: String,
+    pub tour: String,
 }
 
 fn path() -> PathBuf {
@@ -262,7 +268,7 @@ fn enable(on: bool) -> Answer {
 }
 
 /// The launcher's language, as the translation tables name it.
-fn language() -> String {
+pub(crate) fn language() -> String {
     let code = core::get_settings().ok().and_then(|s| s.get("language").and_then(Value::as_str).map(str::to_string)).unwrap_or_default();
     omsi_cfg::lang::language_iso(&code).to_string()
 }
@@ -328,11 +334,34 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>) {
     write_texts(&install::plugin_dir(&dir));
     match assign(a, &language()) {
         Ok(v) => {
-            c.assigned = Some(Assigned { issued: v["issued"].as_u64().unwrap_or(0), driver: driver.trim().to_string(), map: d.map.clone(), bus: d.bus.clone() });
+            c.assigned = Some(Assigned {
+                issued: v["issued"].as_u64().unwrap_or(0),
+                driver: driver.trim().to_string(),
+                map: d.map.clone(),
+                bus: d.bus.clone(),
+                company: name.to_string(),
+                line: d.line.clone().unwrap_or_default(),
+                tour: d.tour.clone().unwrap_or_default(),
+            });
             let _ = save(&c);
         }
         Err(e) => core::log_to_file(&format!("add-on: no assignment for the plugin: {e}")),
     }
+}
+
+/// The plugin's folder in the game Omsi-Hub starts now (None: the plugin is not on there).
+pub fn game_plugin_dir() -> Option<PathBuf> {
+    game_plugins_dir(&load()).ok().map(|d| install::plugin_dir(&d))
+}
+
+/// The plugin of the game Omsi-Hub starts now and the company's duty it was last given: its
+/// folder and the duty (None: no plugin, or a drive of the player's own). The control room's
+/// messages go to it (`company::messages`).
+pub fn duty_link() -> Option<(PathBuf, Assigned)> {
+    let c = load();
+    let a = c.assigned.clone().filter(|a| !a.company.is_empty() && !a.line.is_empty())?;
+    let dir = if in_addon_mode(&c) { plugins_dir().ok()? } else { own_plugins_dir()? };
+    Some((install::plugin_dir(&dir), a))
 }
 
 fn now() -> u64 {
@@ -438,7 +467,7 @@ mod tests {
 
     #[test]
     fn a_trip_the_plugin_reported_goes_into_its_driver_s_record() {
-        let a = Assigned { issued: 7, driver: "Luc".into(), map: "maps/Grundorf/global.cfg".into(), bus: "Vehicles/MAN_SD202/SD202.bus".into() };
+        let a = Assigned { issued: 7, driver: "Luc".into(), map: "maps/Grundorf/global.cfg".into(), bus: "Vehicles/MAN_SD202/SD202.bus".into(), ..Default::default() };
         let r = bridge::Report { kind: "trip".into(), issued: 7, line: "Linie5".into(), tour: "2".into(), trip: 3, trips: 6, number: "5".into(), terminus: "5 Rathaus".into(), departure: Some(30_000.0), arrival: Some(31_800.0), how: "arrived".into(), delay: Some(65.0), at: 1_760_000_000.0, ..Default::default() };
         let t = trip_run(&r, Some(&a)).unwrap();
         assert_eq!((t.driver.as_str(), t.map.as_str(), t.bus.as_str()), ("Luc", "maps/Grundorf/global.cfg", "Vehicles/MAN_SD202/SD202.bus"));

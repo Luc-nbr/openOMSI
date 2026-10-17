@@ -153,6 +153,9 @@ fn act_need(act: &str, what: &str) -> Need {
         "set_fare" | "set_cap" => Any(&[Perm::Lines, Perm::Spend]),
         "inbox_read" | "inbox_unread" | "inbox_delete" | "inbox_mark_all" | "inbox_delete_read" => SETTINGS,
         "complaint_reply" | "ops_notice" | "ops_apply" | "ops_cover" | "ops_break" => SERVICE,
+        // (the control room's messages to the drivers: who runs the day's service sends them,
+        // by his name)
+        "ops_msg" | "ops_msg_ack" => SERVICE,
         "sandbox_knob" | "sandbox_preset" | "sandbox_balance" | "sandbox_reputation" | "sandbox_reset" => SETTINGS,
         // (the boss's clock, his logo file, his game, his liveries' editor and his career)
         _ => Never,
@@ -535,5 +538,16 @@ mod tests {
         let driver = shell_for(sh, &[Perm::Drive]);
         assert_eq!(driver["pages"], json!([9]));
         assert_eq!(driver["remote"]["perms"], json!(["drive"]));
+    }
+
+    #[test]
+    fn only_who_runs_the_day_s_service_writes_to_the_drivers() {
+        let service = omsi_launcher_lib::company::together::Role::Planner.preset();
+        for act in ["ops_msg", "ops_msg_ack"] {
+            let n = need("co_act", &json!({ "act": act }));
+            assert!(n.met(&[Perm::Service]) && n.met(service), "{act}");
+            assert!(!n.met(&[Perm::Drive]) && !n.met(&[Perm::Plans, Perm::Finances]), "{act}");
+            assert_eq!(n.refusal()["perm"], json!("service"));
+        }
     }
 }

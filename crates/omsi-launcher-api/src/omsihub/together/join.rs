@@ -15,6 +15,10 @@
 //! and stops sending what his game drives -, and every page of the boss's company says so
 //! (`tg_status`, `session.js`) with the way back to the menu. A duty the AI drives since he left it
 //! is taken back from its next trip (`tg_take_back`).
+//!
+//! While his game drives a duty, the control room's messages to it (the snapshot's) go to his
+//! game's plugin as the boss's launcher writes them to its own (`messages_link`), and what he
+//! answers there or tells control goes back to the boss's (`msg_reply`, `msg_tell`).
 
 use super::super::company::words::{day_label, eur, tr, trf};
 use super::super::company::{self, TABS};
@@ -29,6 +33,7 @@ use omsi_launcher_lib::company::together::wire::{DriveStart, DutyState, Notice, 
 use omsi_launcher_lib::company::together::{Perm, Role};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use omsihub_plugin::bridge;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -91,6 +96,8 @@ struct Joined {
     ended: Option<Ended>,
     /// The duty his game drove when the session ended: its results can no longer reach the boss.
     cut_off: Option<Drive>,
+    /// How far his plugin's replies to the control room's messages were read.
+    replies: bridge::ReplyReader,
 }
 
 static JOINED: Mutex<Option<Joined>> = Mutex::new(None);
@@ -289,6 +296,11 @@ fn run(stop: Arc<AtomicBool>) {
                         }
                     }
                 }
+                drop(g);
+                // (the control room's messages of the duty his game drives)
+                if let Some(d) = drive.as_ref().filter(|_| !done) {
+                    messages_link(&base, d);
+                }
             }
             Err(_) => {
                 let mut g = joined();
@@ -299,6 +311,38 @@ fn run(stop: Arc<AtomicBool>) {
                     j.lost = Some(client::UNREACHED.to_string());
                 }
                 unanswered(j);
+            }
+        }
+    }
+}
+
+/// The control room's messages to the duty his game drives (`d`), as the last snapshot has them:
+/// to his plugin, in his launcher's language; what he answered there or told control, to the
+/// boss's launcher (`base`).
+fn messages_link(base: &str, d: &Drive) {
+    let Some(dir) = super::super::addon::game_plugin_dir() else { return };
+    let Some((list, company, req, mut reader)) = joined().as_ref().map(|j| (j.snap.as_ref().map(|s| s.messages.clone()).unwrap_or_default(), j.snap.as_ref().map(|s| s.card.name.clone()).unwrap_or_default(), request(j, "msg_reply"), j.replies.clone())) else { return };
+    super::super::company::words::set_language(&super::super::addon::language());
+    let inbox = company::messages::inbox_of(&company, list.iter(), &d.duty.line, &d.duty.tour, None);
+    if let Err(e) = bridge::write_inbox(&dir, &inbox) {
+        core::log_to_file(&format!("company session: the messages not written for the plugin: {e}"));
+    }
+    let new = reader.read_new(&dir);
+    if let Some(j) = joined().as_mut() {
+        j.replies = reader;
+    }
+    for r in new {
+        let mut q = req.clone();
+        if r.kind == "quick" {
+            q.what = "msg_tell".into();
+            q.text = r.key.clone();
+        } else {
+            q.msg = r.id;
+            q.text = if r.kind == "reply" { r.key.clone() } else { r.kind.clone() };
+        }
+        if let Ok(v) = client::send(base, &q, client::TIMEOUT) {
+            if let Some(j) = joined().as_mut() {
+                take_answer(j, &v);
             }
         }
     }
@@ -486,7 +530,7 @@ fn join(text: &str) -> Value {
     };
     leave();
     let stop = Arc::new(AtomicBool::new(false));
-    *joined() = Some(Joined { text: text.trim().to_string(), code, me: me(), base: None, snap: None, since: 0, notices: Vec::new(), lost: None, failures: 0, drive: None, stop: stop.clone(), wake: true, said: None, logo: None, logo_asked: false, link: Link::new(unix_now()), ended: None, cut_off: None });
+    *joined() = Some(Joined { text: text.trim().to_string(), code, me: me(), base: None, snap: None, since: 0, notices: Vec::new(), lost: None, failures: 0, drive: None, stop: stop.clone(), wake: true, said: None, logo: None, logo_asked: false, link: Link::new(unix_now()), ended: None, cut_off: None, replies: Default::default() });
     let _ = std::thread::Builder::new().name("company session".into()).spawn(move || run(stop));
     view()
 }
@@ -562,8 +606,11 @@ fn drive(args: &Value, p: &dyn Platform, what: &str) -> Answer {
     core::log_to_file(&format!("game {}: {}", launched.pid, launched.command));
     p.launched();
     let number = joined().as_ref().and_then(|j| j.snap.as_ref()).and_then(|s| s.duties.iter().find(|x| omsi_launcher_lib::company::together::book::same_duty(&x.duty, &r)).map(|x| x.number.clone())).unwrap_or_default();
+    // (his plugin's earlier replies are not this duty's: read from here on)
+    let replies = super::super::addon::game_plugin_dir().map(|d| std::fs::metadata(d.join(bridge::DATA_DIR).join(bridge::REPLIES_FILE)).map_or(0, |m| m.len())).unwrap_or(0);
     if let Some(j) = joined().as_mut() {
         j.drive = Some(Drive { duty: r, number, tour: start.tour.clone(), since: unix_now().saturating_sub(60), pid: launched.pid, sent: Vec::new() });
+        j.replies = bridge::ReplyReader { offset: replies };
         j.wake = true;
     }
     Ok(json!({ "launched": serde_json::to_value(launched).unwrap_or(Value::Null) }))

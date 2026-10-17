@@ -730,6 +730,8 @@ pub fn watch(c: &mut Company, dp: &DayPlan, run: &mut Run) {
             .key(&format!("late-{}-{key}", dp.date));
         super::inbox::post(c, msg.clone());
         run.breaks.push(msg);
+        // (the dispatcher tells its driver too: `messages`)
+        super::messages::tell_late(c, &t.tour.line, &t.tour.tour, b.minutes);
         told.push(key);
     }
     let late: Vec<(String, i32)> = lv.buses.iter().map(|b| (plan::tour_key(&dp.tours[b.ti].tour.line, &dp.tours[b.ti].tour.tour), b.minutes)).collect();

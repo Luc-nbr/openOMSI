@@ -6,6 +6,11 @@
 //! checked against it (with the orders still waiting) and put in the company's queue, which
 //! the launcher carries out with the same rules. The device names nothing but an order of a
 //! fixed shape - no company, no file - and only a paired device gets here (`Route::needs_key`).
+//!
+//! While the player drives a duty of the company, the tab has the control room's messages to it
+//! as the launcher writes them for his game (`messages::inbox_file`, in his language with the
+//! buttons' words) - answered, and control told, by orders like the rest (`remote::Order::Reply`,
+//! `remote::Order::Tell`).
 
 use omsi_launcher_lib::company::{self as co, remote};
 use serde_json::{json, Value};
@@ -44,7 +49,13 @@ pub(crate) fn state() -> Value {
         }
     };
     let waiting = remote::pending(&data, &c.id);
-    remote::summary(&c, plan.as_ref(), &waiting)
+    let mut v = remote::summary(&c, plan.as_ref(), &waiting);
+    // (the driver's inbox, while he drives a duty of the company)
+    if c.messages.driving.is_some() {
+        let inbox = std::fs::read_to_string(co::messages::inbox_file(&data, &c.id)).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+        v["messages"] = inbox.unwrap_or(Value::Null);
+    }
+    v
 }
 
 /// An order from the tab (`POST /api/company`): its status and answer. Refusals are the

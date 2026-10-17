@@ -6,11 +6,14 @@
 -- with its next update. The files it shares with Omsi-Hub (see src/bridge.rs):
 --   assignment.lua        Omsi-Hub -> plugin: the duty, the notices, the texts
 --   data/notices.json     Omsi-Hub -> plugin: notices that come while the game runs
+--   data/messages.json    Omsi-Hub -> plugin: the control room's messages (messages.lua)
 --   data/hello.json       plugin -> Omsi-Hub: the handshake (what this openOMSI offers)
 --   data/reports.jsonl    plugin -> Omsi-Hub: the duty taken, each trip done, the duty ended
+--   data/replies.jsonl    plugin -> Omsi-Hub: the driver's answers and quick buttons
+--   data/status.json      plugin -> Omsi-Hub: how the duty stands (for the dispatcher)
 -- A game without the file functions gets the handshake and the reports in its log instead.
 
-local VERSION = "1.5.0"
+local VERSION = "1.6.0"
 local BRIDGE = 1
 local PANEL = "omsihub"
 
@@ -22,6 +25,7 @@ local NEEDS = {
   "duty.get", "duty.trips", "files.append", "files.write", "duty.start",
   "ui.set", "ui.toast", "ui.remove", "files.read", "json.decode", "send",
   "duty.set_auto_ibis", "duty.type_ibis", "bus.set_display_font", "game.action",
+  "duty.skip_to", "duty.finish", "duty.trip_stops", "audio.play",
 }
 
 local function fn(name)
@@ -305,7 +309,19 @@ local function delay()
 end
 
 
+-- the control room's messages (messages.lua): the trip a short-turn or a relief ends reported
+local messages = require("messages")
+messages.setup(tr, { send = send_out, issued = issued, assignment = assignment, end_trip = function(how)
+  local d = duty_now()
+  if not d then return end
+  local c = trip.current()
+  local run = c and c.n == d.trip and trip.finish(false, delay(), watch) or nil
+  trip_ended(run, { trip = d.trip, how = how, delay = delay() })
+end })
+
 omsi.on("duty", function(line, tour)
+  -- (a short-turn takes the same duty again at its next trip: no new duty)
+  if messages.turned(line, tour) then return panel() end
   if state.line then report("duty_end", { line = state.line, tour = state.tour }) end
   state.line, state.tour, state.last_trip = line, tour, nil
   if line then report("duty_start", { line = line, tour = tour }) end
@@ -320,7 +336,10 @@ omsi.on("trip_done", function(n, how, driving, comfort, tickets)
   panel()
 end)
 
-omsi.on("stop_arrive", function(_, _, number, d) trip.arrive(number, d) end)
+omsi.on("stop_arrive", function(_, _, number, d)
+  trip.arrive(number, d)
+  messages.arrive(number)
+end)
 omsi.on("stop_depart", function(_, _, number, d) trip.depart(number, d) end)
 omsi.on("jolt", function() trip.jolt() end)
 omsi.on("crash", function() trip.crash() end)
@@ -380,6 +399,7 @@ end)
 
 omsi.on("ui_click", function(p, element)
   if card.click(p, element) then return end
+  if messages.click(p, element) then return end
   if p == PANEL and element == "start" then start_duty() end
   -- (signed on and the duty accepted: taken now where it was to start by itself)
   if p == PANEL and signon.click(element, function()
@@ -403,6 +423,7 @@ end)
 
 omsi.on("key", function(key, down)
   if card.key(key, down) then return end
+  if messages.key(key, down) then return end
   if key == "F10" and down and (company_duty() or duty_now()) and fn("ui.focus") then omsi.ui.focus(not omsi.ui.focused()) end
 end)
 
@@ -413,6 +434,7 @@ end)
 -- (the duty board: wanted unless Omsi-Hub says not, and not before the driver signed on)
 omsi.every(1, function()
   board.update((not assignment or assignment.board ~= false) and signon.at_work())
+  messages.tick()
 end)
 
 omsi.every(2, function()
@@ -420,6 +442,8 @@ omsi.every(2, function()
   panel()
 end)
 omsi.every(5, live_notices)
+omsi.every(2, messages.read)
+omsi.every(5, messages.status)
 
 hello()
 panel()

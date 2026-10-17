@@ -9,11 +9,15 @@
 //! (`companies/<id>.orders.jsonl`); the launcher takes the queue in (`take`), applies each
 //! order with the same rules again and saves. Orders are plain JSON of a fixed shape - no
 //! names of files, no free text.
+//!
+//! The phone is the driver's too: it shows the control room's messages to the duty he drives
+//! (`messages::inbox_file`, which the launcher writes) and answers them, or tells control with a
+//! quick button (`Order::Reply`, `Order::Tell`).
 
 use super::day::{self, Plan};
 use super::depot::{self, Area, JobKind};
 use super::model::Company;
-use super::{alerts, store, Alert};
+use super::{alerts, messages, store, Alert};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,6 +31,10 @@ pub enum Order {
     Build { area: Area },
     /// A workshop job for a bus of the fleet.
     Job { bus: u32, job: JobKind },
+    /// An answer to a message of the control room (`messages::answer`).
+    Reply { msg: u64, answer: messages::Answer },
+    /// A quick button to control from the duty the player drives (`messages::driver_says`).
+    Tell { what: messages::Quick },
 }
 
 /// An order from the phone's JSON, strictly: an object of exactly the fields of one order.
@@ -39,6 +47,8 @@ pub fn parse(v: &Value) -> Option<Order> {
             let bus = o.get("bus")?.as_u64().filter(|n| *n < 1_000_000)? as u32;
             Some(Order::Job { bus, job: JobKind::from_key(o.get("job")?.as_str()?)? })
         }
+        "reply" if has(&["do", "msg", "answer"]) => Some(Order::Reply { msg: o.get("msg")?.as_u64()?, answer: messages::Answer::of(o.get("answer")?.as_str()?)? }),
+        "tell" if has(&["do", "what"]) => Some(Order::Tell { what: messages::Quick::of(o.get("what")?.as_str()?)? }),
         _ => None,
     }
 }
@@ -48,8 +58,21 @@ pub fn apply(c: &mut Company, o: &Order) -> Result<(), &'static str> {
     match *o {
         Order::Build { area } => depot::build(c, area),
         Order::Job { bus, job } => depot::order(c, bus, job).map(|_| ()),
+        Order::Reply { msg, answer } => {
+            let by = c.messages.driving.clone();
+            messages::answer(c, msg, answer, by.as_ref().map(|(l, t)| (l.as_str(), t.as_str()))).map(|_| ())
+        }
+        Order::Tell { what } => {
+            let Some((line, tour)) = c.messages.driving.clone() else { return Err(NOT_DRIVING) };
+            let name = c.profile.clone();
+            messages::driver_says(c, &line, &tour, &name, what, None, &mut super::clock::Run::default());
+            Ok(())
+        }
     }
 }
+
+/// Why a quick button from the phone is refused (English).
+pub const NOT_DRIVING: &str = "You are not driving a duty of the company now.";
 
 /// Whether an order would be carried out, after the ones still waiting: on a copy.
 pub fn check(c: &Company, waiting: &[Order], o: &Order) -> Result<(), &'static str> {
@@ -247,6 +270,15 @@ mod tests {
         // what is queued reads back the same
         let o = Order::Job { bus: 7, job: JobKind::Overhaul };
         assert_eq!(parse(&serde_json::to_value(o).unwrap()), Some(o));
+        // the driver's answers and quick buttons
+        let r = Order::Reply { msg: 4, answer: messages::Answer::Reply(messages::Canned::OnMyWay) };
+        assert_eq!(parse(&json!({ "do": "reply", "msg": 4, "answer": "on_my_way" })), Some(r));
+        assert_eq!(parse(&serde_json::to_value(r).unwrap()), Some(r));
+        let t = Order::Tell { what: messages::Quick::RoadClosed };
+        assert_eq!(parse(&serde_json::to_value(t).unwrap()), Some(t));
+        for bad in [json!({ "do": "reply", "msg": "4", "answer": "accept" }), json!({ "do": "reply", "msg": 4, "answer": "sudo" }), json!({ "do": "tell", "what": "breakdown", "text": "x" })] {
+            assert_eq!(parse(&bad), None, "{bad}");
+        }
     }
 
     #[test]
@@ -276,6 +308,20 @@ mod tests {
         assert!(done.iter().all(|x| x.1.is_ok()));
         assert!(c.site.works_on(Area::Wash).is_some() && c.site.job_of(id).is_some());
         assert!(pending(&data, &c.id).is_empty() && take(&data, &mut c).is_empty());
+        // the phone answers the control room's message to the duty driven, and tells it
+        let tell = Order::Tell { what: messages::Quick::DelayTraffic };
+        assert_eq!(check(&c, &[], &tell), Err(NOT_DRIVING));
+        c.messages.driving = Some(("Linie5".into(), "1".into()));
+        let id = messages::post(&mut c, messages::To::Duty { line: "Linie5".into(), tour: "1".into() }, messages::Priority::Info, messages::DIVERSION, Vec::new(), None);
+        let other = messages::post(&mut c, messages::To::Duty { line: "Linie5".into(), tour: "2".into() }, messages::Priority::Info, messages::DIVERSION, Vec::new(), None);
+        let read = Order::Reply { msg: id, answer: messages::Answer::Read };
+        assert!(check(&c, &[], &read).is_ok());
+        assert_eq!(check(&c, &[], &Order::Reply { msg: other, answer: messages::Answer::Read }), Err(messages::NOT_YOURS));
+        queue(&data, &c.id, &read).unwrap();
+        queue(&data, &c.id, &tell).unwrap();
+        assert!(take(&data, &mut c).iter().all(|x| x.1.is_ok()));
+        assert_eq!(c.messages.get(id).unwrap().state, messages::State::Read);
+        assert!(c.messages.list.iter().any(|m| m.quick == Some(messages::Quick::DelayTraffic) && m.to == messages::To::Control));
         let _ = std::fs::remove_dir_all(&data);
     }
 }

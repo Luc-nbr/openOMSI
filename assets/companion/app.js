@@ -387,7 +387,8 @@
         report();
         if (mapView) mapView.update();
         if (ui.tab === 'more' && ui.qr && ui.qr.when && Date.now() - ui.qr.when > 20000) loadQr();
-        if (ui.tab === 'company' && !ui.companyBusy && Date.now() - ui.companyAt > 10000) loadCompany();
+        // (sooner while the control room's messages are shown: a driver waits for them)
+        if (ui.tab === 'company' && !ui.companyBusy && Date.now() - ui.companyAt > (ui.company && ui.company.messages ? 4000 : 10000)) loadCompany();
       })
       .catch(function (e) {
         if (e && e.message === 'not_paired') return;
@@ -902,6 +903,43 @@
     return '';
   }
 
+  /* The control room's messages to the duty the player drives (`company.messages`, the launcher's
+     inbox for his game, in his language with the buttons' words): each with where it stands,
+     Accept and Decline for an instruction, the canned replies for one not read yet, and the quick
+     buttons to control - sent as orders, as the rest of the tab's. */
+  function companyMessages(box, sending) {
+    var w = box.words || {};
+    var word = function (k) { return w[k] || k; };
+    var list = box.messages || [];
+    var rows = list.slice(0, 8).map(function (m) {
+      var answered = m.state === 'accepted' || m.state === 'declined';
+      var buttons = null;
+      if (!m.mine && m.action && !answered) {
+        buttons = h('div', { class: 'co-msg-act' },
+          h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'reply', msg: m.id, answer: 'accept' }); } }, word('Accept')),
+          h('button', { type: 'button', class: 'action co-small co-msg-no', disabled: sending, onclick: function () { companyOrder({ do: 'reply', msg: m.id, answer: 'decline' }); } }, word('Decline')));
+      } else if (!m.mine && !m.action && m.state !== 'read') {
+        buttons = h('div', { class: 'co-msg-act' }, (box.replies || []).slice(0, 2).map(function (r) {
+          return h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'reply', msg: m.id, answer: r.key }); } }, r.label);
+        }));
+      }
+      return h('li', { class: 'co-msg co-msg-' + (m.priority || 'info') + (m.mine ? ' co-msg-mine' : '') },
+        h('div', { class: 'co-msg-head' }, h('b', null, m.from || ''), h('small', null, (m.time || '') + ' · ' + (m.state_label || ''))),
+        h('p', null, m.text || ''),
+        m.reply ? h('small', { class: 'co-msg-note' }, '↳ ' + m.reply) : null,
+        m.outcome ? h('small', { class: 'co-msg-note co-warn' }, m.outcome) : null,
+        buttons);
+    });
+    var quick = h('div', { class: 'co-msg-quick' }, (box.quick || []).map(function (q) {
+      return h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'tell', what: q.key }); } }, q.label);
+    }));
+    return h('section', { class: 'card co-card co-msgs' },
+      h('h2', null, word('Messages')),
+      rows.length ? h('ul', { class: 'co-msg-list' }, rows) : h('p', { class: 'explain small' }, word('No messages')),
+      h('h2', null, word('Report to control')),
+      quick);
+  }
+
   function companyApp() {
     var co = ui.company;
     if (!co) {
@@ -975,7 +1013,8 @@
           h('button', { type: 'button', class: 'action co-small', disabled: sending, onclick: function () { companyOrder({ do: 'job', bus: b.id, job: b.job }); } }, t(b.job_label)));
       })) : null);
 
-    return [head, note, tiles, alertCard, today, money6, depot, shop,
+    var msgs = co.messages && co.messages.messages ? companyMessages(co.messages, sending) : null;
+    return [head, note, msgs, tiles, alertCard, today, money6, depot, shop,
       h('p', { class: 'explain small' }, t('The company is the launcher’s: what you order here is carried out there.'))];
   }
 

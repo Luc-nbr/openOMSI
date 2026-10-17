@@ -209,12 +209,13 @@ fn relay_page(s: &mut Session, req: &Request) -> Value {
         let mut g = hosting();
         let Some(h) = g.as_mut() else { return th::refusal(th::BAD_SECRET) };
         let Some(c) = s.company.as_mut() else { return th::refusal(th::NOT_OPEN_COMPANY) };
-        h.st.member(c, req, now).map(|(guest, perms)| (guest, perms, h.viewers.remove(&guest).unwrap_or_default()))
+        h.st.member(c, req, now).map(|(guest, perms)| (guest, perms, h.viewers.remove(&guest).unwrap_or_default(), c.together.name_of(guest)))
     };
-    let (guest, perms, mut viewer) = match member {
+    let (guest, perms, mut viewer, name) = match member {
         Ok(x) => x,
         Err(v) => return v,
     };
+    viewer.name = name;
     let cmd = req.page.get("cmd").and_then(Value::as_str).unwrap_or("");
     let args = req.page.get("args").cloned().unwrap_or(json!({}));
     viewer.guest = guest;

@@ -12,6 +12,10 @@
 // controller's suggestion filled) - with the lines running normally under it; beside it the fleet
 // map small, every bus coloured by its delay, a row clicked centring its bus. Under the map at a
 // narrow width. The advice against late running below, folded.
+//
+// The control room's messages (docs/omsihub/MESSAGES.md, `messages.js`): a "Message" button on
+// every row writes to its driver, a driver's own message is a row of its own, the day's messages
+// are listed under the incidents.
 
 import { html, act, useView, useState, useRef, useSize, Icon, Seg, Plate } from './kit.js';
 // (the advice against late running, of the last day closed: `late::advice_view`)
@@ -19,6 +23,7 @@ import { LateAdvice } from './late.js';
 import { MiniMap } from './fleetmap.js';
 import { Kpi, Ring, Card, Empty } from './pagesb.js';
 import { useCallback } from '../../../vendor/preact-htm.js';
+import { MsgButton, Compose, MsgLog } from './messages.js';
 
 // (this page's own look, loaded with it)
 if (!document.querySelector('link[data-co-ops-css]')) {
@@ -30,7 +35,7 @@ if (!document.querySelector('link[data-co-ops-css]')) {
 }
 
 /** The ways out's actions, by the kind of row. */
-const WHAT = { bus: 'ops_apply', driver: 'ops_cover', break: 'ops_break' };
+const WHAT = { bus: 'ops_apply', driver: 'ops_cover', break: 'ops_break', msg: 'ops_msg_ack' };
 
 /** A way out as a compact button: its icon and a word or two, the controller's suggestion filled
  * in the accent, its long words and what it comes to as the tooltip. Held while it runs (what it
@@ -65,6 +70,7 @@ function Row({ x, v, onFocus }) {
       ${x.done && html`<span class="co-pgb-op-done"><${Icon} name="check" size=${13} />${x.done}</span>`}
       ${(x.options || []).map((o) => html`<${Way} o=${o} what=${WHAT[x.kind]} v=${v} />`)}
       ${x.none && html`<span class="co-pgb-op-none" title=${x.nothing}>${x.none}</span>`}
+      <${MsgButton} x=${x} v=${v} />
     </span>
   </div>`;
 }
@@ -115,7 +121,7 @@ export function OpsPage() {
   if (!v?.title) return html`<div class="co-pgb"></div>`;
   const busy = v.reading || v.error || v.idle;
   const k = v.kpis;
-  const rows = [...(v.breaks || []), ...(v.buses || []), ...(v.drivers || [])];
+  const rows = [...(v.breaks || []), ...(v.buses || []), ...(v.drivers || []), ...(v.msgs || [])];
   const order = { high: 0, medium: 1, low: 2, ok: 3 };
   rows.sort((a, b) => (order[a.sev?.key] ?? 2) - (order[b.sev?.key] ?? 2));
   const focus = (key) => ctl.current?.focus(key);
@@ -160,7 +166,9 @@ export function OpsPage() {
       ${v.done?.length > 0 && html`<${Card} icon="history" title=${v.caps.done}>
         ${v.done.map((d) => html`<div class="co-ops-done"><span class="time">${d.time}</span><span class="cut">${d.text}</span></div>`)}
       </${Card}>`}
+      ${!v.reading && !v.error && html`<${MsgLog} v=${v} />`}
       ${advice?.list?.length > 0 && html`<details class="co-pgb-card co-pgb-op-advice"><summary><${Icon} name="info" size=${16} />${v.advice}</summary><${LateAdvice} /></details>`}
     </div>
+    <${Compose} v=${v} />
   </div>`;
 }
