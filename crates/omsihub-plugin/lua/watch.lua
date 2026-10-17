@@ -58,10 +58,13 @@ local function offence(o)
   if o.kind == "red_light" then
     notify("traffic", tr("Red light"), tr("You crossed the stop line on red · fine %{amount}", { amount = euros(o.fine) }))
   else
-    local mph = M.units == "imperial"
+    -- (in miles an hour for a player who reads them - Britain's and America's units -, the
+    -- limit as the signs show it: in steps of 5 mph)
+    local mph = M.units == "uk" or M.units == "us" or M.units == "imperial"
     local k = mph and 0.621371 or 1
+    local limit = mph and math.max(career.round(o.limit * k / 5) * 5, 5) or o.limit
     local text = mph and "%{speed} mph where %{limit} is allowed · fine %{amount}" or "%{speed} km/h where %{limit} is allowed · fine %{amount}"
-    notify("photo_camera", tr("Speed camera"), tr(text, { speed = string.format("%.0f", o.speed * k), limit = string.format("%.0f", o.limit * k), amount = euros(o.fine) }))
+    notify("photo_camera", tr("Speed camera"), tr(text, { speed = string.format("%.0f", o.speed * k), limit = string.format("%.0f", limit), amount = euros(o.fine) }))
   end
 end
 

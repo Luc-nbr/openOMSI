@@ -309,13 +309,23 @@ fn assign(a: Assignment, lang: &str) -> Answer {
     Ok(json!({ "issued": a.issued }))
 }
 
+/// The company's side of a duty for the plugin's board (`company::launch`'s `plugin_parts`):
+/// the duty's sheet, service control's decisions for its tour, the fare box, the contract.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Parts {
+    pub sheet: Vec<bridge::SheetRow>,
+    pub controls: Vec<bridge::ControlNote>,
+    pub fare: Option<bridge::Fare>,
+    pub contract: Option<bridge::ContractNote>,
+}
+
 /// Give the plugin the duty of a drive about to start, where the plugin is on (otherwise
 /// nothing happens): `company` names the company's duty (its name and the duty's
-/// id); a drive of the player's own gets an assignment as well, so that its trips are booked
-/// for the right driver. `crew`: the duty strip and the bus's notes of a company's duty, and
-/// `company_id` the company its notes and defects go to. Said in the launcher's log when it
-/// fails: the drive starts anyway.
-pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>, crew: Option<bridge::Crew>, company_id: Option<&str>) {
+/// id) and gives its `Parts`; a drive of the player's own gets an assignment as well, so that
+/// its trips are booked for the right driver. `crew`: the duty strip and the bus's notes of a
+/// company's duty, and `company_id` the company its notes and defects go to. Said in the
+/// launcher's log when it fails: the drive starts anyway.
+pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str, Parts)>, crew: Option<bridge::Crew>, company_id: Option<&str>) {
     let mut c = load();
     let Ok(dir) = game_plugins_dir(&c) else { return };
     if install::status(&dir).state != install::State::On {
@@ -323,12 +333,13 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>, crew: Option<b
     }
     let config = core::load_config();
     let driver = d.profile.clone().filter(|p| !p.trim().is_empty()).unwrap_or(config.profile);
-    let (name, duty) = company.unwrap_or_default();
+    let is_company = company.is_some();
+    let (name, duty, parts) = company.unwrap_or_default();
     // (the navigator's settings of Omsi-Hub's game: signing on before a company's duty, the
     // duty board)
     let settings = core::get_settings().unwrap_or_else(|_| core::settings_from_text(None));
     let on = |k: &str, default: bool| settings.get(k).and_then(Value::as_bool).unwrap_or(default);
-    let personnel = (company.is_some() && on("nav_signon", false)).then(|| super::hub_more::personnel_of(&driver)).flatten().map(|(number, code)| bridge::Personnel { number, code });
+    let personnel = (is_company && on("nav_signon", false)).then(|| super::hub_more::personnel_of(&driver)).flatten().map(|(number, code)| bridge::Personnel { number, code });
     let a = Assignment {
         company: name.to_string(),
         duty: duty.to_string(),
@@ -346,6 +357,10 @@ pub fn assign_duty(d: &core::Duty, company: Option<(&str, &str)>, crew: Option<b
         editor: d.editor,
         // (the duty strip unless the navigator's settings say not: `nav_strip`)
         crew: crew.map(|x| bridge::Crew { strip: Some(on("nav_strip", true)), ..x }),
+        sheet: parts.sheet,
+        controls: parts.controls,
+        fare: parts.fare,
+        contract: parts.contract,
         ..Assignment::default()
     };
     write_texts(&install::plugin_dir(&dir));

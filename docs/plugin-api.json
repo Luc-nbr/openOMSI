@@ -1732,7 +1732,7 @@
       "name": "game.settings",
       "group": "game",
       "since": "0.2.22",
-      "doc": "The settings a plugin may read: `graphics` (`\"vanilla\"`, `\"vanilla_plus\"`, `\"enhanced\"`), `language` (the cockpit's, `\"ENG\"`), `ui_language`, `ui_scale`, `volume`, `fov`, `render_scale`, `max_fps`, `fullscreen`, `vsync`, `msaa`, `shadows`, `time_speed`, `units` (`\"metric\"`: speeds are km/h everywhere), ...",
+      "doc": "The settings a plugin may read: `graphics` (`\"vanilla\"`, `\"vanilla_plus\"`, `\"enhanced\"`), `language` (the cockpit's, `\"ENG\"`), `ui_language`, `ui_scale`, `volume`, `fov`, `render_scale`, `max_fps`, `fullscreen`, `vsync`, `msaa`, `shadows`, `time_speed`, `units` (`\"metric\"`: speeds are km/h everywhere), `display_units` (the units the player chose to read: `\"metric\"`, `\"uk\"` or `\"us\"`), ...",
       "params": [],
       "returns": "table",
       "multi": false,
@@ -3183,6 +3183,16 @@
       "returns": "nil",
       "multi": false,
       "permission": "ui"
+    },
+    {
+      "name": "ui.dock",
+      "group": "ui",
+      "since": "0.2.22",
+      "doc": "The navigator's board, where a panel with `anchor = \"navigator\"` goes, in that panel's pixels: its width, the most height there is room for, and the height the panel there came to (0 before it was laid out); `nil` while the navigator shows no board (it is off, or Shift+N or the handle on its bar put the board away).",
+      "params": [],
+      "returns": "width, room, height, or nil",
+      "multi": true,
+      "permission": null
     },
     {
       "name": "ui.focus",

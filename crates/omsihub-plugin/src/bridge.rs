@@ -72,6 +72,61 @@ pub struct Notice {
     pub kind: String,
 }
 
+/// A row of the duty's sheet as the company planned it (`company::duty_launch::Row`), for the
+/// duty strip: `kind` is `"sign_on"`, `"trip"`, `"break"` or `"sign_off"`; `at` where (a
+/// trip: where it goes), `from`/`to` the minutes of the day (signing on and off: both the
+/// same), `relief` the bus is taken over or handed on there, `empty` a deadhead.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SheetRow {
+    pub kind: String,
+    pub at: String,
+    pub from: i32,
+    pub to: i32,
+    pub relief: bool,
+    pub line: String,
+    pub empty: bool,
+}
+
+/// What service control decided today for the duty's tour (`company::control::Control`), for
+/// the dispatcher's messages: `kind` is `"short_turn"`, `"express"`, `"layover"`, `"swap"` or
+/// `"cover"`; `at` when it was decided and `dep` the trip it is for (minutes of the day);
+/// `minutes` what it saves; `bus` the bus swapped in.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ControlNote {
+    pub kind: String,
+    pub at: i32,
+    pub dep: i32,
+    pub minutes: i32,
+    pub bus: String,
+}
+
+/// What a passenger boarding brings the company on average today (`company::fares::
+/// per_passenger`), in the company's currency: the amount and how it is written.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Fare {
+    pub per_boarding: f64,
+    pub symbol: String,
+    /// The symbol after the amount ("12,40 zł"), else before it ("€12.40").
+    pub after: bool,
+    /// The decimals written.
+    pub places: u32,
+}
+
+/// The line's contract with the authority today (`company::bus_contracts`): its kind
+/// (`"gross"`, `"net"`, `"hire"`), how the authority rates it (`"green"`, `"orange"`, `"red"`)
+/// and the standard's on-time window, minutes early and late.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContractNote {
+    pub kind: String,
+    pub rag: String,
+    pub early: i32,
+    pub late: i32,
+}
+
 /// A driver's pass.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -121,6 +176,13 @@ pub struct Assignment {
     pub display_font: String,
     /// The map's object editor on once the world is there (the editors' "edit this map").
     pub editor: bool,
+    /// The company's side of the duty, for the board's company parts (all empty on a drive of
+    /// the player's own): the duty's sheet, service control's decisions for its tour, the fare
+    /// box and the line's contract.
+    pub sheet: Vec<SheetRow>,
+    pub controls: Vec<ControlNote>,
+    pub fare: Option<Fare>,
+    pub contract: Option<ContractNote>,
     /// The plugin's texts in the player's language: English text -> translation.
     pub texts: BTreeMap<String, String>,
     /// The duty strip, the bus's handover notes and the walk-around of a company's duty

@@ -40,6 +40,16 @@ function M.jolt() total.jolts = total.jolts + 1 end
 function M.crash() total.crashes = total.crashes + 1 end
 function M.boarded(n) total.boarded = total.boarded + (tonumber(n) or 0) end
 
+-- the passengers boarded on the trip under way (0 between trips), and on the whole drive
+function M.boarded_on_trip()
+  if not cur or cur.done then return 0 end
+  return math.max(total.boarded - cur.start.boarded, 0)
+end
+
+function M.boarded_total()
+  return total.boarded
+end
+
 -- the line as the trip's displays show it, and its terminus without it ("5 Rathaus": Rathaus)
 local function terminus_of(line, terminus)
   terminus = terminus or ""

@@ -23,6 +23,7 @@ use omsi_ui::paint::Align as TextAlign;
 use omsi_ui::{Atlas, Color, Draw, Fonts, Gpu, Layer, Painter, Rect, Vertex, Weight};
 
 pub mod input;
+mod nav;
 #[cfg(test)]
 mod preview;
 mod widgets;
@@ -116,6 +117,8 @@ pub struct Laid {
     pub items: Vec<Item>,
     /// The clickable parts, in the order they are drawn (the last one under the mouse wins).
     pub hits: Vec<Hit>,
+    /// It casts a shadow (not in the navigator, where it is a part of its card).
+    pub shadow: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -290,8 +293,8 @@ impl Layout<'_> {
                     + gap * children.len().saturating_sub(1) as f32
             }
             Kind::Bar { .. } => BAR_W,
-            Kind::Badge { text, .. } => {
-                (self.width(text, BADGE_PX, Weight::Medium) + 2.0 * BADGE_PAD).ceil()
+            Kind::Badge { text, weight: wt, .. } => {
+                (self.width(text, BADGE_PX, weight(*wt)) + 2.0 * BADGE_PAD).ceil()
             }
             Kind::Divider => 1.0,
             Kind::Space { size } => *size,
@@ -483,6 +486,7 @@ impl Layout<'_> {
                 value,
                 height,
                 background,
+                segments,
             } => {
                 let track = Rect::new(r.x, r.y + (r.h - height) * 0.5, r.w, *height);
                 self.rounded(
@@ -491,7 +495,17 @@ impl Layout<'_> {
                     background.map(color).unwrap_or(TRACK),
                     None,
                 );
-                if *value > 0.0 {
+                // (parts side by side, each its share of the whole, a hair apart)
+                let total: f32 = segments.iter().map(|s| s.0).sum();
+                if total > 0.0 {
+                    let mut x = track.x;
+                    for (v, c) in segments.iter().filter(|s| s.0 > 0.0) {
+                        let w = (track.w * v / total).min(track.right() - x);
+                        let seg = Rect::new(x, track.y, (w - 1.0).max(*height).min(track.right() - x), *height);
+                        self.rounded(seg, height * 0.5, color(*c), None);
+                        x += w;
+                    }
+                } else if *value > 0.0 {
                     let fill = (r.w * value).max(*height).min(r.w);
                     self.rounded(
                         Rect::new(track.x, track.y, fill, *height),
@@ -501,18 +515,19 @@ impl Layout<'_> {
                     );
                 }
             }
-            Kind::Badge { text, text_color } => {
+            Kind::Badge { text, text_color, weight: wt } => {
+                let wt = weight(*wt);
                 let w = self.natural(e).min(r.w);
                 let b = Rect::new(r.x, r.y + (r.h - BADGE_H) * 0.5, w, BADGE_H);
                 let fill = e.color.map(color).unwrap_or(ACCENT);
                 self.rounded(b, BADGE_H * 0.5, fill, None);
-                let t = self.fit(text, BADGE_PX, Weight::Medium, w - 2.0 * BADGE_PAD);
-                let tw = self.width(&t, BADGE_PX, Weight::Medium);
-                let y = self.baseline(b.y, b.h, BADGE_PX, Weight::Medium);
+                let t = self.fit(text, BADGE_PX, wt, w - 2.0 * BADGE_PAD);
+                let tw = self.width(&t, BADGE_PX, wt);
+                let y = self.baseline(b.y, b.h, BADGE_PX, wt);
                 self.text(
                     t,
                     BADGE_PX,
-                    Weight::Medium,
+                    wt,
                     Vec2::new(b.x + (b.w - tw) * 0.5, y),
                     text_color.map(color).unwrap_or(ink_on(fill)),
                 );
@@ -666,6 +681,7 @@ pub fn layout_typing(p: &Panel, fonts: &Fonts, backdrop: f32, typing: Option<&st
         .map(color)
         .unwrap_or(CARD.alpha(backdrop.min(1.0 / CARD.0[3])));
     out.accent = p.accent.map(color);
+    out.shadow = true;
     out
 }
 
@@ -745,6 +761,8 @@ pub fn toast_panel(t: &Toast) -> Panel {
         visible: true,
         clickable: false,
         draggable: false,
+        grab: false,
+        font: pui::Font::Interface,
         children,
     }
 }
@@ -811,12 +829,14 @@ pub fn draw_card(
         }
     };
     let n = p.len();
-    p.shadow(
-        Rect::new(card.x, card.y + 2.0, card.w, card.h),
-        laid.radius,
-        SHADOW_BLUR,
-        SHADOW,
-    );
+    if laid.shadow {
+        p.shadow(
+            Rect::new(card.x, card.y + 2.0, card.w, card.h),
+            laid.radius,
+            SHADOW_BLUR,
+            SHADOW,
+        );
+    }
     put(&p, n, 0, 0);
     let n = p.len();
     p.rect(card, laid.background);
@@ -923,6 +943,10 @@ struct Card {
     revision: u64,
     scale: f32,
     backdrop: f32,
+    /// The width it was laid out at (the navigator's board's, there; else its table's).
+    width: f32,
+    /// The typeface it is written in (an index into `PluginPanels::faces`).
+    face: usize,
     laid: Laid,
     tex: Option<(TextureId, u32, u32)>,
     /// The hit lit when it was drawn (None: to be drawn).
@@ -934,10 +958,29 @@ struct Card {
     seen: u64,
 }
 
+impl Card {
+    fn new(revision: u64) -> Card {
+        Card { revision, scale: 0.0, backdrop: 0.0, width: 0.0, face: 0, laid: Laid::default(), tex: None, drawn: None, origin: Vec2::ZERO, y: None, seen: 0 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Key {
     Panel(u64, String),
     Toast(u64),
+}
+
+/// The navigator's board, where the panel with `anchor = "navigator"` goes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Dock {
+    /// Its width and the most height it may take (physical pixels).
+    pub width: f32,
+    pub room: f32,
+    /// The navigator's scale: physical pixels a point of it (the panel is laid out in those).
+    pub scale: f32,
+    /// Its top left on the window (physical pixels) once the navigator made room for the
+    /// panel (`PluginPanels::docked`); None until then.
+    pub at: Option<Vec2>,
 }
 
 /// What the frame tells the panels.
@@ -955,24 +998,45 @@ pub struct PanelsFrame {
     pub backdrop: f32,
     /// The navigator's panel (physical x0, y0, x1, y1), which the notifications stay clear of.
     pub navigator: Option<[f32; 4]>,
+    /// The navigator's board (None: the navigator shows none).
+    pub dock: Option<Dock>,
+}
+
+/// A typeface with the glyphs drawn of it and the GPU state they are drawn with (a glyph
+/// atlas knows no typefaces: each has its own), and the pictures on that GPU.
+struct Face {
+    fonts: Fonts,
+    atlas: Atlas,
+    gpu: Gpu,
+    images: widgets::Images,
 }
 
 /// The plugins' panels on the screen.
 #[derive(Default)]
 pub struct PluginPanels {
-    gpu: Option<Gpu>,
-    fonts: Option<Fonts>,
-    atlas: Option<Atlas>,
+    /// The interface's typeface and the launcher's (`pui::Font`), made when first used.
+    faces: [Option<Face>; 2],
     cards: HashMap<Key, Card>,
     frame: u64,
     /// The interface's scale the cards were last laid out at (the app's drags divide by it).
     pub scale: f32,
-    /// The plugins' pictures on the graphics card.
-    images: widgets::Images,
     /// A slider or a panel being dragged with the mouse.
     pub drag: Option<input::Drag>,
     /// The field typed into when the cards were last laid out.
     typing: Option<(u64, String, String)>,
+    /// The left button went down on a panel that takes clicks without the mouse (`grab`):
+    /// its release is the panel's too, not the cab's.
+    pub grabbed: bool,
+    /// The height of the panel in the navigator's board as last laid out (physical pixels):
+    /// the room the navigator makes for it. None: no such panel shown.
+    pub docked: Option<f32>,
+}
+
+fn face_of(font: pui::Font) -> usize {
+    match font {
+        pui::Font::Interface => 0,
+        pui::Font::Launcher => 1,
+    }
 }
 
 impl PluginPanels {
@@ -985,6 +1049,8 @@ impl PluginPanels {
         ui.set_screen(screen.x, screen.y, k);
         ui.set_shown(!f.hidden);
         ui.tick(f.dt);
+        self.docked = None;
+        ui.set_dock(None);
         if !f.hidden && (!ui.panels().is_empty() || !ui.toasts().is_empty()) {
             self.show(r, scene, ui, f, k, screen);
         }
@@ -1012,6 +1078,15 @@ impl PluginPanels {
         }
     }
 
+    fn make_faces(&mut self, r: &Renderer) {
+        for (i, slot) in self.faces.iter_mut().enumerate() {
+            if slot.is_none() {
+                let atlas = Atlas::new(1024);
+                *slot = Some(Face { fonts: if i == 1 { Fonts::hanken() } else { Fonts::new() }, gpu: Gpu::new(&r.device, r.format(), 1, atlas.size), atlas, images: widgets::Images::default() });
+            }
+        }
+    }
+
     fn show(
         &mut self,
         r: &Renderer,
@@ -1021,13 +1096,11 @@ impl PluginPanels {
         k: f32,
         screen: Vec2,
     ) {
-        let fonts = self.fonts.get_or_insert_with(Fonts::new);
-        let atlas = self.atlas.get_or_insert_with(|| Atlas::new(1024));
-        let gpu = self
-            .gpu
-            .get_or_insert_with(|| Gpu::new(&r.device, r.format(), 1, atlas.size));
-        atlas.begin_frame();
-        let generation = atlas.generation;
+        self.make_faces(r);
+        for face in self.faces.iter_mut().flatten() {
+            face.atlas.begin_frame();
+        }
+        let generations: Vec<u64> = self.faces.iter().flatten().map(|x| x.atlas.generation).collect();
         let focused = ui.focused();
         let cursor = Vec2::new(f.cursor.0, f.cursor.1);
         // (the caret goes into the field typed into, and out of the one left)
@@ -1041,32 +1114,69 @@ impl PluginPanels {
             }
             self.typing = typing.clone();
         }
-        let margin = (MARGIN * k).ceil();
         let mut cards: Vec<Key> = Vec::new();
+        // (the first panel for the navigator's board is the one there; another waits)
+        let mut dock_taken = false;
+        let mut dock_said = None;
         for e in ui.panels().iter().filter(|e| e.panel.visible) {
+            let dock = match (e.panel.anchor == pui::Anchor::Navigator, f.dock) {
+                (false, _) => None,
+                (true, Some(d)) if !dock_taken => {
+                    dock_taken = true;
+                    Some(d)
+                }
+                // (no board shown: the navigator is told there is one to show)
+                (true, None) => {
+                    self.docked.get_or_insert(0.0);
+                    continue;
+                }
+                _ => continue,
+            };
+            // (in the navigator: its scale and its width, without a card of its own)
+            let (ck, width) = match dock {
+                Some(d) => (d.scale.max(0.25), (d.width / d.scale.max(0.25)).max(40.0)),
+                None => (k, e.panel.width),
+            };
+            let face = face_of(e.panel.font);
             let key = Key::Panel(e.owner, e.id.clone());
-            let card = self.cards.entry(key.clone()).or_insert_with(|| Card {
-                revision: u64::MAX,
-                scale: 0.0,
-                backdrop: 0.0,
-                laid: Laid::default(),
-                tex: None,
-                drawn: None,
-                origin: Vec2::ZERO,
-                y: None,
-                seen: 0,
-            });
-            if card.revision != e.revision || card.scale != k || card.backdrop != f.backdrop {
+            let card = self.cards.entry(key.clone()).or_insert_with(|| Card::new(u64::MAX));
+            if card.revision != e.revision || card.scale != ck || card.backdrop != f.backdrop || card.width != width || card.face != face {
+                let fonts = &self.faces[face].as_ref().expect("made above").fonts;
                 let caret = typing.as_ref().filter(|t| t.0 == e.owner && t.1 == e.id).map(|t| t.2.as_str());
-                card.laid = layout_typing(&e.panel, fonts, f.backdrop, caret);
+                card.laid = match dock {
+                    Some(_) => {
+                        let p = Panel { width, accent: None, radius: 0.0, background: Some(e.panel.background.unwrap_or(Rgba([0, 0, 0, 0]))), ..e.panel.clone() };
+                        let mut l = layout_typing(&p, fonts, f.backdrop, caret);
+                        l.shadow = false;
+                        l
+                    }
+                    None => layout_typing(&e.panel, fonts, f.backdrop, caret),
+                };
                 card.revision = e.revision;
-                card.scale = k;
+                card.scale = ck;
                 card.backdrop = f.backdrop;
+                card.width = width;
+                card.face = face;
                 card.drawn = None;
             }
-            let at = input::moved(place(&e.panel, card.laid.w, card.laid.h, screen), e.moved, card.laid.w, card.laid.h, screen);
-            card.origin = Vec2::new(f.hud[0] + (at.x * k).round(), f.hud[1] + (at.y * k).round());
+            match dock {
+                Some(d) => {
+                    self.docked = Some((card.laid.h * ck).ceil());
+                    dock_said = Some([width, d.room / ck, card.laid.h]);
+                    // (until the navigator made room for it, it is laid out, not shown)
+                    let Some(at) = d.at else { continue };
+                    card.origin = Vec2::new(at.x.round(), at.y.round());
+                }
+                None => {
+                    let at = input::moved(place(&e.panel, card.laid.w, card.laid.h, screen), e.moved, card.laid.w, card.laid.h, screen);
+                    card.origin = Vec2::new(f.hud[0] + (at.x * k).round(), f.hud[1] + (at.y * k).round());
+                }
+            }
             cards.push(key);
+        }
+        if let Some(d) = f.dock {
+            let s = d.scale.max(0.25);
+            ui.set_dock(Some(dock_said.unwrap_or([(d.width / s).max(40.0), d.room / s, 0.0])));
         }
         // the notifications, newest at the top, under the navigator when it is in the way
         let right = screen.x - 16.0;
@@ -1080,18 +1190,9 @@ impl PluginPanels {
         let ease = 1.0 - (-f.dt.max(0.0) * 12.0).exp();
         for t in ui.toasts().iter().rev() {
             let key = Key::Toast(t.serial);
-            let card = self.cards.entry(key.clone()).or_insert_with(|| Card {
-                revision: 0,
-                scale: 0.0,
-                backdrop: 0.0,
-                laid: Laid::default(),
-                tex: None,
-                drawn: None,
-                origin: Vec2::ZERO,
-                y: None,
-                seen: 0,
-            });
+            let card = self.cards.entry(key.clone()).or_insert_with(|| Card::new(0));
             if card.scale != k || card.backdrop != f.backdrop {
+                let fonts = &self.faces[0].as_ref().expect("made above").fonts;
                 card.laid = layout(&toast_panel(t), fonts, f.backdrop);
                 card.scale = k;
                 card.backdrop = f.backdrop;
@@ -1125,16 +1226,18 @@ impl PluginPanels {
                 continue;
             };
             card.seen = self.frame;
+            let ck = card.scale;
+            let margin = (MARGIN * ck).ceil();
             let hot = match key {
                 Key::Panel(..) if focused => {
-                    let local = (cursor - card.origin) / k;
+                    let local = (cursor - card.origin) / ck;
                     hit_at(&card.laid, local).filter(|&i| card.laid.hits[i].element.is_some())
                 }
                 _ => None,
             };
             let (tw, th) = (
-                ((card.laid.w * k).ceil() + 2.0 * margin) as u32,
-                ((card.laid.h * k).ceil() + 2.0 * margin) as u32,
+                ((card.laid.w * ck).ceil() + 2.0 * margin) as u32,
+                ((card.laid.h * ck).ceil() + 2.0 * margin) as u32,
             );
             // (a card larger than the graphics chip's largest texture is not drawn: the
             // texture would come out smaller than it was drawn for)
@@ -1155,20 +1258,21 @@ impl PluginPanels {
             let (tex, _, _) = card.tex.unwrap();
             if card.drawn != Some(hot) {
                 if let Some(view) = r.texture_view(scene, tex) {
+                    let face = self.faces[card.face].as_mut().expect("made above");
                     draw_card(
-                        gpu,
+                        &mut face.gpu,
                         &r.device,
                         &r.queue,
-                        atlas,
-                        fonts,
+                        &mut face.atlas,
+                        &face.fonts,
                         &view,
                         (tw, th),
-                        k,
+                        ck,
                         &card.laid,
-                        Vec2::splat(margin / k),
+                        Vec2::splat(margin / ck),
                         hot,
                         true,
-                        &mut self.images,
+                        &mut face.images,
                     );
                     card.drawn = Some(hot);
                 }
@@ -1178,14 +1282,14 @@ impl PluginPanels {
                 .overlays
                 .push((tex, [x, y, x + tw as f32, y + th as f32]));
         }
-        // (the atlas ran full in the middle of it: what was drawn then is drawn again)
-        if atlas.generation != generation {
+        // (an atlas ran full in the middle of it: what was drawn then is drawn again)
+        let now: Vec<u64> = self.faces.iter().flatten().map(|x| x.atlas.generation).collect();
+        if now != generations {
             for c in self.cards.values_mut() {
                 c.drawn = None;
             }
         }
     }
-
 }
 
 /// The line the game shows while the panels have the mouse.

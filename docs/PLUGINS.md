@@ -276,8 +276,10 @@ end)
 F10 gives the panels the mouse; a click on the button sounds the horn. The whole example is
 [`docs/examples/plugins/trip_panel.lua`](examples/plugins/trip_panel.lua).
 
-`omsi.ui.version` is `2` (`1` before the controls below): test
-`if omsi.ui and omsi.ui.version >= 2` in a plugin that should also run in an older openOMSI.
+`omsi.ui.version` is `3` (`2` before the navigator's board, boxes, stop lists, bars of
+parts, the launcher's typeface, aligned and coloured table cells and `grab`; `1` before the
+controls below): test `if omsi.ui and omsi.ui.version >= 3` in a plugin that should also run
+in an older openOMSI.
 The panels are the plugin's own: one plugin cannot change or remove another's, and when the
 plugin stops, or is loaded again after a change of its file, its panels go (its
 notifications run their time). They show over the picture and the navigator and under the
@@ -288,7 +290,7 @@ city map is open, nor in VR.
 
 ```lua
 omsi.ui.set("trip", {
-  anchor = "top_left",       -- top_left top top_right left center right bottom_left bottom bottom_right
+  anchor = "top_left",       -- top_left top top_right left center right bottom_left bottom bottom_right, navigator
   x = 16, y = 16,             -- from the anchor towards the middle (from a middle: right and down)
   width = 340,                -- the height follows the content
   padding = 12,               -- default 12
@@ -299,6 +301,8 @@ omsi.ui.set("trip", {
   visible = true,             -- false hides it and keeps it
   clickable = false,          -- true: a click anywhere on it is ui_click(id, nil)
   draggable = false,          -- true: while the panels have the mouse it can be moved by its free parts
+  grab = false,               -- true: a click on it is its own even while the panels do not have the mouse
+  font = "interface",         -- "interface" (the game's, Inter) or "launcher" (the launcher's, Hanken Grotesk)
   children = { ... },         -- elements, top to bottom
 })
 ```
@@ -306,6 +310,21 @@ omsi.ui.set("trip", {
 Sizes are pixels of a 1080p screen at the normal interface size. A panel stays on the screen
 whatever its offset; one the player dragged keeps its new place when it is set again
 (`omsi.ui.moved(id)` says how far).
+
+`anchor = "navigator"` puts the panel into the small navigator as its board: under its
+next-stop bar (beside the map on a wide navigator), as wide as the navigator, drawn at its
+scale and on its background (the panel's own `background` over it, no stripe, no shadow), in
+the launcher's typeface unless `font` says otherwise. It shows while the navigator shows its
+board - Shift+N's second step and the handle on its bar show and hide it, and on a duty it
+opens once by itself - and the navigator's own list of stops makes way for it; `x`, `y`,
+`width`, `accent` and `draggable` do not apply there. One plugin panel at a time is there
+(the first one set). `omsi.ui.dock()` gives its width, the most height there is room for and
+the height the panel came to (`nil` while no board is shown), so that the plugin can leave out
+what does not fit.
+
+`grab = true` is for a card the driver clicks without F10 (to keep it, close it or change its
+tab): a press on it goes to the panel as with the mouse given to the panels, and the cab
+behind it gets none.
 
 #### Elements
 
@@ -316,8 +335,10 @@ Every element can have an `id`, a `color` and `visible = false` (left out, no ro
 | `text` | `text`, `size` (default 14), `weight` (`regular`, `medium`, `bold`), `align` (`left`, `center`, `right`), `wrap` (default `true`; `false`: one line, cut with "…") | a line or a paragraph, wrapped at the width it has; a line is 1.3 × `size` high |
 | `icon` | `name`, `size` (default 20) | one of the game's icons (Material Symbols names: `directions_bus`, `schedule`, `payments`, `warning`, `star`, `emoji_events`... - every one in [`assets/icons/material`](../assets/icons/material)); a name the game does not have draws nothing |
 | `row` | `children`, `gap` (default 8), `align` (`start`, `center`, `end`, `between`) | its children side by side, centred on each other; a child with `grow = true` takes the width the others leave (several share it); when they do not fit, texts, labels and buttons give up width alike |
-| `bar` | `value` (0 to 1), `height` (default 6), `color` (the filled part, default the game's amber), `background` | a progress bar; in a row 60 wide unless it grows |
-| `badge` | `text`, `color` (its fill, default amber), `text_color` | a small rounded label, 20 high |
+| `bar` | `value` (0 to 1), `height` (default 6), `color` (the filled part, default the game's amber), `background`, `segments` (`{ { value = 3, color = "#2A75F7" }, ... }`, up to 16) | a progress bar; with `segments` a bar of parts side by side, each its share of their sum, in place of `value`'s one; in a row 60 wide unless it grows |
+| `badge` | `text`, `color` (its fill, default amber), `text_color`, `weight` (default `medium`) | a small rounded label, 20 high |
+| `box` | `children`, `gap` (default 4), `color` (default amber) | its children stacked in a box tinted with the colour, a stripe of it on the left: a note, an advice |
+| `stops` | `stops` (`{ { name, time, expected, expected_color, state, tag }, ... }`; `state` `done`, `now` or `ahead`), `size` (13), `color` (the rail, default amber) | stops on a rail as the navigator's duty board draws them: grey where the bus has been, the one it heads for marked, on the right its time and before it, in `expected_color`, when the bus will be there, and a `tag` ("terminus") |
 | `divider` | `color` | a thin line (in a row: upright) |
 | `space` | `size` (default 8) | empty room (in a row: across) |
 | `button` | `id` (needed), `text`, `icon`, `color` | a button 34 high, across the panel (in a row as wide as its label, or what it grows to); a click on it is `ui_click(panel id, button id)` |
@@ -327,7 +348,7 @@ Every element can have an `id`, a `color` and `visible = false` (left out, no ro
 | `input` | `id` (needed), `text`, `placeholder`, `max` (characters, default 100) | a text field: clicked, it takes what is typed (the keys do not reach the bus meanwhile) - `ui_change` at every key, Enter is a `ui_click` on it, Esc or a click elsewhere leaves it |
 | `tabs` | `id` (needed), `tabs` (a list of texts), `selected` (from 1) | a row of tabs: `ui_change(panel, id, number)` when one is chosen |
 | `chart` | `values` (up to 512 numbers), `min`, `max` (default: the values'), `height` (48), `style` (`line`, `bars`), `fill` | the values over the width: a line (filled below with `fill`) or bars |
-| `table` | `columns` (header texts), `rows` (a list of lists of texts), `widths` (shares of the width), `size` (13) | columns of texts, the header bold over a line |
+| `table` | `columns` (header texts), `rows` (a list of lists of texts; a cell may be `{ text = "+3:12", color = "#FF5F57" }`), `widths` (shares of the width), `aligns` (each column's: `left`, `center`, `right`), `size` (13) | columns of texts, the header bold over a line |
 
 Another element with an `id` and `clickable = true` (a whole row, say) is clicked as a
 button is. Texts are shown as they are: they are not translated into the game's language.
@@ -616,6 +637,7 @@ declared to call the function (a plain `.lua` file has them all).
 | --- | --- | --- | --- |
 | `omsi.message(text, [seconds])` | nil | A line of text on the screen (5 seconds when not given). *Permission: `ui`.* | 0.1.5 |
 | `omsi.ui.clear()` | nil | Removes every panel of the plugin. *Permission: `ui`.* | 0.2.21 |
+| `omsi.ui.dock()` | width, room, height, or nil | The navigator's board, where a panel with `anchor = "navigator"` goes, in that panel's pixels: its width, the most height there is room for, and the height the panel there came to (0 before it was laid out); `nil` while the navigator shows no board (it is off, or Shift+N or the handle on its bar put the board away). | 0.2.22 |
 | `omsi.ui.focus(on)` | boolean | `true`: the panels get the mouse (the cursor shows, a click goes to the panel under it and none to the bus); `false`, Esc or a menu of the game gives it back. Returns the new state. *Permission: `ui`.* | 0.2.21 |
 | `omsi.ui.focused()` | boolean | Whether the panels have the mouse. | 0.2.21 |
 | `omsi.ui.moved(panel)` | dx, dy | How far the player dragged a panel from where its table puts it (pixels). | 0.2.22 |
@@ -712,7 +734,7 @@ declared to call the function (a plain `.lua` file has them all).
 | `omsi.game.notify(text, [kind], [seconds])` | boolean | A notification of the game's own (the cards the server's messages use): `kind` `"info"`, `"warning"` or `"alert"`. *Permission: `ui`.* | 0.2.22 |
 | `omsi.game.platform()` | string | The system the game runs on: `"windows"`, `"macos"`, `"linux"`, `"android"`. | 0.2.22 |
 | `omsi.game.screenshot()` | string or nil | Takes a screenshot with the next frame, as the camera key does; the file it goes to (the `screenshot` event says when it is there). *Permission: `ui`.* | 0.2.22 |
-| `omsi.game.settings()` | table | The settings a plugin may read: `graphics` (`"vanilla"`, `"vanilla_plus"`, `"enhanced"`), `language` (the cockpit's, `"ENG"`), `ui_language`, `ui_scale`, `volume`, `fov`, `render_scale`, `max_fps`, `fullscreen`, `vsync`, `msaa`, `shadows`, `time_speed`, `units` (`"metric"`: speeds are km/h everywhere), ... | 0.2.22 |
+| `omsi.game.settings()` | table | The settings a plugin may read: `graphics` (`"vanilla"`, `"vanilla_plus"`, `"enhanced"`), `language` (the cockpit's, `"ENG"`), `ui_language`, `ui_scale`, `volume`, `fov`, `render_scale`, `max_fps`, `fullscreen`, `vsync`, `msaa`, `shadows`, `time_speed`, `units` (`"metric"`: speeds are km/h everywhere), `display_units` (the units the player chose to read: `"metric"`, `"uk"` or `"us"`), ... | 0.2.22 |
 | `omsi.game.stats()` | table | This session's counts, as the personnel file has them: `km`, `stops_served`, `stops_skipped`, `crashes`, `heavy_crashes`, `pedestrians`, `tickets`, `cash`, `passengers`, ... | 0.2.22 |
 | `omsi.game.version()` | string | The game's version (`"0.2.22"`). | 0.2.22 |
 | `omsi.info()` | table | What the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic`, `speed`, `delay`, `map_path`, `version`; with a bus also `tile_x`, `tile_y`, `tile_pos_x`, `tile_pos_y`, `heading`, `vehicle_manufacturer`, `vehicle_model`, `destination`, `passengers`; `crashes`, `heavy_crashes`, `pedestrians_hit`; `situation`; on a duty also `line`, `tour`, `trip`, `trips`, `trip_name`, `terminus`, `stops`, `trip_done`, `next_stop`, `next_stop_number`, `next_stop_arrival`, `next_stop_departure`, `next_stop_id`, `at_stop`, `previous_stop`, `previous_stop_id`, `next_stop_distance`, `previous_stop_distance` (see the plugin docs for each). | 0.1.10 |
