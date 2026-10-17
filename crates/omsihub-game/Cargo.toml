@@ -34,7 +34,7 @@ ab_glyph.workspace = true
 rayon.workspace = true
 sha2.workspace = true
 # the livery studio: shapes, outlines and SVG pictures rasterised (as omsi-ui does its icons)
-resvg = { version = "0.45", default-features = false }
+resvg = { version = "0.48", default-features = false }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 # the livery studio's clipboard and file dialogs (its pictures)
