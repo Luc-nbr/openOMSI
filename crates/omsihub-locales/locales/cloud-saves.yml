@@ -388,3 +388,10 @@ _version: 2
   pl: "To usunie twój profil, znajomych, zaproszenia, zapisy w chmurze, a potem samo konto. Twoje firmy na tym PC zostaną jako zapisy lokalne. Nie da się tego cofnąć."
   ru: "Будут удалены ваш профиль, друзья, приглашения, облачные сохранения, а затем и сам аккаунт. Ваши компании на этом ПК останутся локальными сохранениями. Отменить это нельзя."
   uk: "Буде видалено ваш профіль, друзів, запрошення, хмарні збереження, а потім і сам обліковий запис. Ваші компанії на цьому ПК залишаться локальними збереженнями. Скасувати це неможливо."
+"Local company to put in the cloud":
+  de: "Lokales Unternehmen für die Cloud"
+  fr: "Entreprise locale à mettre dans le cloud"
+  nl: "Lokaal bedrijf om in de cloud te zetten"
+  pl: "Lokalna firma do umieszczenia w chmurze"
+  ru: "Локальная компания для облака"
+  uk: "Локальна компанія для хмари"

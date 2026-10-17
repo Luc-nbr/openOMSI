@@ -38,6 +38,7 @@
 .hubcs-btns { display: flex; gap: 4px; flex: none; justify-content: flex-end; }
 .hubcs-btns.wrap { flex-wrap: wrap; justify-content: flex-start; }
 .hubcs-panel .hub-btn.small, .hubcs-ask .hub-btn.small { height: 26px; padding: 0 9px; font-size: 9px; gap: 4px; }
+.hubcs-pick { display: block; margin: 10px 0 4px; font-size: 9.6px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--hub-text-dim); }
 .hubcs-put { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .hubcs-select { flex: 1; min-width: 0; height: 28px; border: 0; outline: none; border-radius: var(--hub-r); background: var(--hub-field); color: var(--hub-text); padding: 0 8px; font-size: 10px; }
 .hubcs-select:focus { box-shadow: 0 0 0 2px rgba(var(--hub-accent-rgb), 0.45); }
