@@ -6,9 +6,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Luc-nbr/omsi-hub/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/Luc-nbr/omsi-hub?style=for-the-badge&label=release&color=f58620"></a>
+  <a href="https://github.com/Luc-nbr/openOMSI/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/Luc-nbr/openOMSI?style=for-the-badge&label=release&color=f58620"></a>
   <a href="https://omsihub.com"><img alt="Website" src="https://img.shields.io/badge/website-omsihub.com-1e1c22?style=for-the-badge"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Luc-nbr/omsi-hub?style=for-the-badge&color=4c4f56"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/Luc-nbr/openOMSI?style=for-the-badge&color=4c4f56"></a>
 </p>
 
 **Omsi-Hub** turns the bus simulator into a complete bus operation. It provides a launcher, editors and a full bus company mode: you plan the timetables, the vehicles and the drivers' duties, and you drive the shifts yourself.
@@ -19,7 +19,7 @@ Omsi-Hub is built on [openOMSI](https://github.com/openOMSI-org/openOMSI), the o
 > **An original copy of OMSI 2 is required.** Omsi-Hub contains no game content of its own. It plays on the maps, vehicles and other files of an installed OMSI 2.
 
 > [!NOTE]
-> **Beta software.** Omsi-Hub is in active development. Features may change between versions, and problems can be reported under [Issues](https://github.com/Luc-nbr/omsi-hub/issues).
+> **Beta software.** Omsi-Hub is in active development. Features may change between versions, and problems can be reported under [Issues](https://github.com/Luc-nbr/openOMSI/issues).
 
 ## Features
 
@@ -41,7 +41,7 @@ Omsi-Hub is built on [openOMSI](https://github.com/openOMSI-org/openOMSI), the o
 
 ## Download
 
-Releases are published on the [Releases](https://github.com/Luc-nbr/omsi-hub/releases) page. The application updates itself to every new release.
+Releases are published on the [Releases](https://github.com/Luc-nbr/openOMSI/releases) page. The application updates itself to every new release.
 
 | Platform | File | Start |
 | --- | --- | --- |

@@ -207,8 +207,8 @@ mod tests {
     #[test]
     fn the_fork_s_releases_and_a_test_build() {
         use omsi_platform::updater as u;
-        assert_eq!(u::REPO, "Luc-nbr/omsi-hub");
-        assert!(u::REPO_URL.ends_with("/Luc-nbr/omsi-hub"));
+        assert_eq!(u::REPO, "Luc-nbr/openOMSI");
+        assert!(u::REPO_URL.ends_with("/Luc-nbr/openOMSI"));
         assert!(u::is_test_build("0.2.37-beta51"));
         assert_eq!(u::shown_version("0.2.37-beta51"), "Beta 51");
         assert_eq!(u::shown_version("0.2.37.70"), "0.2.37.70");

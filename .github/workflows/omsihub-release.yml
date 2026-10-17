@@ -1,4 +1,4 @@
-# Omsi-Hub (this fork, github.com/Luc-nbr/omsi-hub): builds openOMSI with the Omsi-Hub
+# Omsi-Hub (this fork, github.com/Luc-nbr/openOMSI): builds openOMSI with the Omsi-Hub
 # interface for Windows x64 and publishes it as the release v<MAJOR.MINOR.COMMIT>.<OURS>
 # (scripts/omsihub-version.sh) - the release the fork's builds update themselves from
 # (crates/omsi-app/src/updater.rs). It runs on every push to beta, by hand, and from

@@ -1,4 +1,4 @@
-//! Updates from this fork's GitHub releases (github.com/Luc-nbr/omsi-hub: openOMSI with the
+//! Updates from this fork's GitHub releases (github.com/Luc-nbr/openOMSI: openOMSI with the
 //! Omsi-Hub interface - the project's own releases, github.com/openOMSI-org/openOMSI, would
 //! replace that interface).
 //!
@@ -50,12 +50,12 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// The project on GitHub (renamed from Luc-nbr/openOMSI in Beta 66; GitHub redirects the old name, so older apps keep finding updates).
-pub const REPO: &str = "Luc-nbr/omsi-hub";
-pub const REPO_URL: &str = "https://github.com/Luc-nbr/omsi-hub";
+/// The project on GitHub: Luc-nbr/openOMSI, the address every release before it looks at for updates.
+pub const REPO: &str = "Luc-nbr/openOMSI";
+pub const REPO_URL: &str = "https://github.com/Luc-nbr/openOMSI";
 // (the list, not `releases/latest`: that one may be a release of the project's kind)
-const LATEST_API: &str = "https://api.github.com/repos/Luc-nbr/omsi-hub/releases?per_page=30";
-const RELEASES_API: &str = "https://api.github.com/repos/Luc-nbr/omsi-hub/releases?per_page=50";
+const LATEST_API: &str = "https://api.github.com/repos/Luc-nbr/openOMSI/releases?per_page=30";
+const RELEASES_API: &str = "https://api.github.com/repos/Luc-nbr/openOMSI/releases?per_page=50";
 pub const FIRST_SELF_TESTED: &str = "0.2.32";
 
 /// A build the App Store delivers (every iPhone and iPad build, and a Mac build made with
