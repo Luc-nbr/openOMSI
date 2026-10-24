@@ -443,3 +443,23 @@ fn stale_staging_is_removed() {
 fn free_space_is_known() {
     assert!(free_space(&std::env::temp_dir()).unwrap_or(0) > 0);
 }
+
+/// Without the feature `rar` (Omsi-Hub's build: unrar-rs is GPL-3.0) a .rar is refused, before
+/// anything is written, with a message that says what to do instead.
+#[cfg(not(feature = "rar"))]
+#[test]
+fn a_rar_is_refused_without_the_feature() {
+    let dir = tmp("no-rar");
+    let content = dir.join("content");
+    omsi_cfg::ensure_content_layout(&content).unwrap();
+    let rar = dir.join("Foo Bus.rar");
+    std::fs::write(&rar, b"Rar! ").unwrap();
+    assert!(!RAR);
+    let e = inspect(&content, None, &rar).unwrap_err();
+    assert!(format!("{e:#}").contains("unpack it first"), "{e:#}");
+    let p = run_blocking(content.clone(), None, rar, InstallMode::Auto, None, false);
+    assert_eq!(p.state, "failed", "{p:?}");
+    assert!(p.message.contains("RAR archive") || p.report.iter().any(|l| l.contains("RAR archive")), "{p:?}");
+    assert!(!content.join("Vehicles/Foo Bus").exists() && !content.join(STAGING).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}

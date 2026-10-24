@@ -10,6 +10,12 @@ pub(super) enum ArchiveKind {
     Rar,
 }
 
+/// Why a .rar is not installed by a build without the feature `rar`.
+#[cfg(not(feature = "rar"))]
+pub(super) fn no_rar(src: &Path) -> anyhow::Error {
+    anyhow!("{} is a RAR archive, which this build cannot read: unpack it first (with 7-Zip or WinRAR) and install the folder, or use a .zip or .7z", src.display())
+}
+
 pub(super) fn archive_kind(path: &Path) -> Option<ArchiveKind> {
     if !path.is_file() {
         return None;
@@ -35,6 +41,9 @@ pub(super) fn unpack_archive(job: &Job, content: &Path, src: &Path, dest: &Path,
             let bytes = entries.iter().filter(|e| e.has_stream && !e.is_directory).fold(0u64, |sum, e| sum.saturating_add(e.size));
             (files, bytes)
         }
+        #[cfg(not(feature = "rar"))]
+        ArchiveKind::Rar => return Err(no_rar(src)),
+        #[cfg(feature = "rar")]
         ArchiveKind::Rar => {
             let archive = unrar_rs::RarArchive::open(std::fs::File::open(src)?)
                 .with_context(|| format!("{} is not a readable RAR archive", src.display()))?;
@@ -88,6 +97,9 @@ pub(super) fn unpack_archive(job: &Job, content: &Path, src: &Path, dest: &Path,
                 Ok(wrote)
             }).with_context(|| format!("unpacking {} (the archive may be damaged or encrypted)", src.display()))?;
         }
+        #[cfg(not(feature = "rar"))]
+        ArchiveKind::Rar => return Err(no_rar(src)),
+        #[cfg(feature = "rar")]
         ArchiveKind::Rar => {
             let mut archive = unrar_rs::RarArchive::open(std::fs::File::open(src)?)
                 .with_context(|| format!("opening {}", src.display()))?;

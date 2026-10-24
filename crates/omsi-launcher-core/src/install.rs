@@ -54,6 +54,9 @@ pub const STAGING: &str = ".install-staging";
 pub const WAITING: &str = "waiting";
 /// Archives used in place, inside the content folder (the game mounts every `.zip` there).
 pub const ARCHIVES: &str = "Archives";
+/// Whether this build installs a .rar (the feature `rar`, on by default: unrar-rs is GPL-3.0, so a
+/// build that may not carry it, Omsi-Hub, leaves it out and refuses a .rar).
+pub const RAR: bool = cfg!(feature = "rar");
 
 /// How an archive is installed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
@@ -1269,6 +1272,9 @@ pub fn inspect(content: &Path, root: Option<&Path>, src: &Path) -> Result<Source
                 (entries.iter().filter(|e| e.has_stream && !e.is_directory).count() as u64,
                     entries.iter().filter(|e| e.has_stream && !e.is_directory).fold(0u64, |n, e| n.saturating_add(e.size)))
             }
+            #[cfg(not(feature = "rar"))]
+            ArchiveKind::Rar => return Err(no_rar(src)),
+            #[cfg(feature = "rar")]
             ArchiveKind::Rar => {
                 let a = unrar_rs::RarArchive::open(std::fs::File::open(src)?)
                     .with_context(|| format!("{} is not a readable RAR archive", src.display()))?;

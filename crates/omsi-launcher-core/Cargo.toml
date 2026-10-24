@@ -15,6 +15,12 @@ path = "src/lib.rs"
 name = "omsi-hub-cli"
 path = "src/main.rs"
 
+[features]
+# A .rar mod read with unrar-rs. On for openOMSI; Omsi-Hub (closed source, which may not carry
+# GPL code) builds without it, and a .rar is then refused with a clear message.
+default = ["rar"]
+rar = ["dep:unrar-rs"]
+
 [build-dependencies]
 winresource.workspace = true
 
@@ -25,7 +31,8 @@ anyhow.workspace = true
 rayon.workspace = true
 zip.workspace = true
 sevenz-rust2 = { version = "0.22", default-features = false, features = ["util", "deflate"] }
-unrar-rs = { version = "0.10", default-features = false, features = ["crypto-rust"] }
+# (only with the feature `rar`: unrar-rs is GPL-3.0 with the unRAR restriction)
+unrar-rs = { version = "0.10", default-features = false, features = ["crypto-rust"], optional = true }
 omsi-cfg = { path = "../omsi-cfg" }
 omsi-map = { path = "../omsi-map" }
 omsi-vehicle = { path = "../omsi-vehicle" }
