@@ -13,7 +13,7 @@ ureq.workspace = true
 # The cloud saves (`saves.rs`): a company's save compressed with zstd before it is uploaded, its
 # sha256 checked both ways. (zstd builds its C library with `cc`: MSVC, clang and gcc alike.)
 sha2.workspace = true
-zstd = { version = "0.13", default-features = false }
+zstd = { version = "0.14", default-features = false }
 # Signing in with Google (`oauth.rs`): the PKCE verifier and the state from the
 # system's generator (ring, which omsi-net has in the tree already)
 ring.workspace = true
