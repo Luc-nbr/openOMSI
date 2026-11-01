@@ -141,6 +141,8 @@ fn traffic_and_people() {
         assert(omsi.traffic.density() == 30 and omsi.traffic.set_density(50, 0.5))
         assert(omsi.traffic.remove(7) and not omsi.traffic.remove(7) and omsi.traffic.clear() == 1)
         assert(omsi.traffic.light_ahead() == nil)
+        local lights = omsi.traffic.lights(); assert(#lights == 1 and lights[1].aspect == "red" and lights[1].change_in == 12 and lights[1].heading == 90)
+        assert(#omsi.traffic.lights(1000) == 2)
         local walking, waiting, riding = omsi.people.counts(); assert(walking == 20 and riding == 3)
         assert(#omsi.people.list() == 2 and #omsi.people.list(10) == 1 and omsi.people.list(10)[1].state == "seated")
         assert(omsi.people.stops()[1].waiting == 5 and omsi.people.waiting(13) == 5 and omsi.people.waiting(1) == 0)

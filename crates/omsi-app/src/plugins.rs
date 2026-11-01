@@ -709,6 +709,9 @@ impl PluginIo for Io<'_> {
     fn traffic_light_ahead(&self, reach: f64) -> Option<op::Light> {
         pbus::light_ahead(self.app()?, reach)
     }
+    fn traffic_lights(&self, radius: f64) -> Vec<op::LightHead> {
+        self.app().map(|a| pbus::lights(a, radius)).unwrap_or_default()
+    }
     fn people_counts(&self) -> Option<[usize; 3]> {
         let (w, s, a) = self.app()?.session.humans.as_ref()?.counts();
         Some([w, s, a])

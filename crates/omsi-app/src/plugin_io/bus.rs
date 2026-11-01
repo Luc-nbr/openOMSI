@@ -244,6 +244,12 @@ pub(crate) fn light_ahead(app: &App, reach: f64) -> Option<op::Light> {
     let lanes = t.lanes_ahead_of(v.position, v.heading, reach as f32);
     let (lane, dist) = lanes.into_iter().skip(1).filter(|(l, _)| t.net.lanes[*l].traffic_light.is_some()).min_by(|a, b| a.1.total_cmp(&b.1))?;
     let (c, li) = t.net.lanes[lane].traffic_light?;
+    let (aspect, change_in) = light_now(t, c, li)?;
+    Some(op::Light { aspect, change_in, distance: dist as f64 })
+}
+
+/// What light `li` of crossing `c` shows and the seconds to its next change (-1: none coming).
+fn light_now(t: &omsi_sim::ai_traffic::TrafficSim, c: usize, li: usize) -> Option<(&'static str, f32)> {
     let (state, _) = t.light_state(c, li)?;
     use omsi_sim::traffic::{Aspect, TrafficLightController};
     let aspect = match TrafficLightController::aspect(state) {
@@ -255,7 +261,32 @@ pub(crate) fn light_ahead(app: &App, reach: f64) -> Option<op::Light> {
         Aspect::Dark => "dark",
     };
     let change_in = t.lights.get(c).and_then(|ctl| ctl.time_to_change(li)).unwrap_or(f32::INFINITY);
-    Some(op::Light { aspect, change_in: if change_in.is_finite() { change_in } else { -1.0 }, distance: dist as f64 })
+    Some((aspect, if change_in.is_finite() { change_in } else { -1.0 }))
+}
+
+/// The traffic lights' stop lines within `radius` m of the player's bus: the start of each street
+/// lane a light holds, one per light and place (the lanes turning off from one stop line share it).
+pub(crate) fn lights(app: &App, radius: f64) -> Vec<op::LightHead> {
+    use omsi_sim::traffic::LaneKind;
+    let (Some(t), Some(v)) = (app.session.traffic.as_ref(), veh(app)) else { return Vec::new() };
+    let mut out: Vec<(usize, usize, op::LightHead)> = Vec::new();
+    for lane in &t.net.lanes {
+        let Some((c, li)) = lane.traffic_light else { continue };
+        if lane.kind != LaneKind::Street || lane.points.len() < 2 {
+            continue;
+        }
+        let p = lane.points[0];
+        if (p.x - v.position.x).hypot(p.y - v.position.y) > radius {
+            continue;
+        }
+        if out.iter().any(|(oc, ol, h)| (*oc, *ol) == (c, li) && (h.pos[0] - p.x).hypot(h.pos[1] - p.y) < 2.0) {
+            continue;
+        }
+        let Some((aspect, change_in)) = light_now(t, c, li) else { continue };
+        let heading = lane.headings.first().map(|h| *h as f64).unwrap_or(0.0).rem_euclid(360.0);
+        out.push((c, li, op::LightHead { pos: [p.x, p.y, p.z], heading, width: lane.width, aspect, change_in }));
+    }
+    out.into_iter().map(|(_, _, h)| h).collect()
 }
 
 // --- the people --------------------------------------------------------------------------

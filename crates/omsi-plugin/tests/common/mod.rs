@@ -272,6 +272,10 @@ impl PluginIo for Game {
     fn traffic_light_ahead(&self, _: f64) -> Option<Light> {
         self.light.clone()
     }
+    fn traffic_lights(&self, r: f64) -> Vec<LightHead> {
+        let all = vec![LightHead { pos: [110.0, 50.0, 0.0], heading: 90.0, width: 3.5, aspect: "red", change_in: 12.0 }, LightHead { pos: [600.0, 50.0, 0.0], heading: 0.0, width: 3.0, aspect: "green", change_in: -1.0 }];
+        all.into_iter().filter(|l| (l.pos[0] - 100.0).hypot(l.pos[1] - 50.0) <= r).collect()
+    }
     fn people_counts(&self) -> Option<[usize; 3]> {
         Some([20, 5, 3])
     }

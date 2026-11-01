@@ -85,6 +85,18 @@ pub static FNS: &[ApiFn] = &[
         let r = a.opt_num(0)?.unwrap_or(80.0).clamp(1.0, 500.0);
         Ok::<_, ApiError>(c.io().traffic_light_ahead(r).map(|l| rec(vec![("aspect", l.aspect.into()), ("change_in", Value::from(l.change_in)), ("distance", l.distance.into())])))
     }),
+    def!("traffic.lights", "traffic", [o("radius", "number")], "list of tables", "The traffic lights within `radius` m of the player's bus (default 300): where each holds the traffic - the middle of a lane's stop line - `{x, y, z, heading, width, aspect, change_in}`, `heading` the way the lane runs over it, `width` the lane's, `aspect` and `change_in` as `traffic.light_ahead`. Lanes that turn off from one stop line share it.", NEW, None, false, |c, a| {
+        let r = a.opt_num(0)?.unwrap_or(300.0).clamp(1.0, 2000.0);
+        Ok::<_, ApiError>(Value::List(c.io().traffic_lights(r).into_iter().map(|l| rec(vec![
+            ("x", l.pos[0].into()),
+            ("y", l.pos[1].into()),
+            ("z", l.pos[2].into()),
+            ("heading", l.heading.into()),
+            ("width", Value::from(l.width)),
+            ("aspect", l.aspect.into()),
+            ("change_in", Value::from(l.change_in)),
+        ])).collect()))
+    }),
     def!("people.counts", "people", [], "walking, waiting, riding", "The people of the map near the camera: walking, waiting at stops, riding a bus.", NEW, None, true, |c, a| multi(c.io().people_counts().map(|n| n.map(Value::from)))),
     def!("people.list", "people", [o("radius", "number")], "list of tables", "The people (within `radius` m of the player's bus, when given): `{id, x, y, z, state, aboard, ai_bus, stop, destination, ticket, complaint}`. `state`: `\"strolling\"`, `\"idle\"`, `\"standing\"`, `\"waiting\"`, `\"to_bus\"`, `\"boarding\"`, `\"riding\"`, `\"seated\"`, `\"leaving\"`, `\"to_stop\"`; `aboard` in the player's bus; `complaint` 0 to 3 (3: they leave).", NEW, None, false, |c, a| {
         let r = a.opt_num(0)?;

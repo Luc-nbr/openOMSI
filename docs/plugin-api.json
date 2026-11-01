@@ -3090,6 +3090,22 @@
       "permission": null
     },
     {
+      "name": "traffic.lights",
+      "group": "traffic",
+      "since": "0.2.22",
+      "doc": "The traffic lights within `radius` m of the player's bus (default 300): where each holds the traffic - the middle of a lane's stop line - `{x, y, z, heading, width, aspect, change_in}`, `heading` the way the lane runs over it, `width` the lane's, `aspect` and `change_in` as `traffic.light_ahead`. Lanes that turn off from one stop line share it.",
+      "params": [
+        {
+          "name": "radius",
+          "type": "number",
+          "optional": true
+        }
+      ],
+      "returns": "list of tables",
+      "multi": false,
+      "permission": null
+    },
+    {
       "name": "traffic.list",
       "group": "traffic",
       "since": "0.2.22",

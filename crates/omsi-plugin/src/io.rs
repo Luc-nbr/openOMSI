@@ -272,6 +272,10 @@ pub trait PluginIo {
     fn traffic_light_ahead(&self, _reach: f64) -> Option<Light> {
         None
     }
+    /// The traffic lights' stop lines within `radius` m of the player's bus, each with its light.
+    fn traffic_lights(&self, _radius: f64) -> Vec<LightHead> {
+        Vec::new()
+    }
     /// Walking, waiting at stops, riding a bus.
     fn people_counts(&self) -> Option<[usize; 3]> {
         None
@@ -643,6 +647,21 @@ pub struct Light {
     pub change_in: f32,
     /// Metres from the bus to it.
     pub distance: f64,
+}
+
+/// A traffic light where it holds the traffic: the stop line of a lane it controls.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LightHead {
+    /// The middle of the stop line (world metres).
+    pub pos: [f64; 3],
+    /// The way the lane runs over it (degrees, clockwise from north).
+    pub heading: f64,
+    /// The lane's width (m).
+    pub width: f32,
+    /// As [`Light::aspect`].
+    pub aspect: &'static str,
+    /// Seconds to its next change (-1: none coming).
+    pub change_in: f32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
